@@ -92,7 +92,7 @@ public sealed class NoCallsignReminderTests
     {
         NoiseReductionPerChannelTests.AssertWindowless();
         string own = Src("JJFlexWpf", "MainWindow.CallsignReminder.cs");
-        string show = Body(own, "private void ShowCallsignReminderIfDue()");
+        string show = Body(own, "private bool ShowCallsignReminderIfDue()");
         Assert.Contains("if (!CallsignReminderAppliesNow())", show, StringComparison.Ordinal);
         string wait = Body(own, "private async Task WaitUntilNoDialogOfOursIsUpAsync()");
         Assert.Contains("WindowFocusForcer.AttentionWindowOpen", wait, StringComparison.Ordinal);

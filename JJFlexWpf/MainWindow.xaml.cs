@@ -114,6 +114,9 @@ public partial class MainWindow : UserControl
                     "FocusReturnCallback: connect quiet scope active - landing "
                     + "stands down; scheduling the silent focus check",
                     System.Diagnostics.TraceLevel.Info);
+                // No landing runs for this close, so the replayed-arrival mark
+                // is spent here rather than left for a later, unrelated one.
+                TakeArrivalJustReplayed();
                 ScheduleQuietScopeFocusRescue();
                 return;
             }
@@ -2387,6 +2390,7 @@ public partial class MainWindow : UserControl
                 Tracing.TraceLine(
                     "FocusReturnCallback: another window of ours holds the foreground - standing down",
                     System.Diagnostics.TraceLevel.Info);
+                TakeArrivalJustReplayed();   // spent by this landing, though it says nothing
                 return;
             }
 
@@ -2428,6 +2432,10 @@ public partial class MainWindow : UserControl
                 System.Diagnostics.TraceLevel.Warning);
         }
 
+        // Taken on every landing that gets this far, whichever branch speaks:
+        // the mark belongs to the one landing behind a replayed arrival
+        // (MainWindow.CallsignReminder.cs, _arrivalJustReplayed).
+        bool arrivalJustReplayed = TakeArrivalJustReplayed();
         var rig = RigControl;
         if (rig != null && rig.MyNumSlices > 0)
         {
@@ -2473,6 +2481,18 @@ public partial class MainWindow : UserControl
             // they came back to. Queued, not interrupting, so it lands
             // behind whatever the close itself announced; Critical, since
             // connection state is the always-spoken class.
+            // Not when the startup reminder's close has just replayed Home's
+            // arrival, which said where the operator is a moment ago.
+            if (arrivalJustReplayed)
+            {
+                Tracing.TraceLine(
+                    "FocusReturnCallback: no radio - where-you-are sentence left out; Home's replayed arrival just said it",
+                    System.Diagnostics.TraceLevel.Info);
+                return;
+            }
+            Tracing.TraceLine(
+                "FocusReturnCallback: no radio - saying where the operator came back to (connect.no_radio.plain)",
+                System.Diagnostics.TraceLevel.Info);
             Radios.ScreenReaderOutput.Speak(
                 Radios.Lexicon.Get("connect.no_radio.plain",
                     Radios.ScreenReaderOutput.CurrentVerbosity),

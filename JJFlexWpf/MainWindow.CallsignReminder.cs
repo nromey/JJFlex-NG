@@ -80,6 +80,41 @@ public partial class MainWindow
     /// </summary>
     private Action? _pendingArrival;
 
+    /// <summary>
+    /// True from the moment <see cref="ReplayParkedBringUp"/> runs a parked
+    /// arrival until the next return-to-app landing takes it, whatever that
+    /// landing then does (<see cref="TakeArrivalJustReplayed"/>).
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why (repair round 4).</b> The reminder is a dialog of ours, and
+    /// every dialog of ours posts the "a dialog closed back into the app"
+    /// landing when it closes, at ApplicationIdle. The reminder's turn ends
+    /// synchronously, before that landing runs, and its replay speaks Home's
+    /// parked arrival. With no radio the landing then said "JJ Flexible Home,
+    /// no radio connected" behind it, about three seconds later: five of five
+    /// reminder closes on the bench. So the landing that follows a replayed
+    /// arrival leaves out its own where-you-are sentence, and only that: its
+    /// focus repair runs as always.</para>
+    /// <para><b>One landing only.</b> The landing takes it first thing, on every
+    /// exit, and so does the dialog-close callback when the connect quiet scope
+    /// stands the landing down. A turn that showed no window posts no landing,
+    /// so <see cref="EndCallsignReminderTurn"/> clears it there; it cannot wait
+    /// for a later, unrelated dialog close and silence that.</para>
+    /// <para><b>The advisory chain.</b> It shares <see cref="ReplayParkedBringUp"/>
+    /// but never has an arrival parked: only the reminder's own turn at the
+    /// welcome parks one, and that turn's end replays it before the chain can
+    /// run. So the chain's replay sets nothing and its landings are unchanged.</para>
+    /// </remarks>
+    private bool _arrivalJustReplayed;
+
+    /// <summary>Reads and clears <see cref="_arrivalJustReplayed"/>: it belongs to one landing.</summary>
+    private bool TakeArrivalJustReplayed()
+    {
+        bool replayed = _arrivalJustReplayed;
+        _arrivalJustReplayed = false;
+        return replayed;
+    }
+
     /// <summary>The decision, pure, so a test can hold it without a window.</summary>
     internal static bool CallsignReminderApplies(string? callsign, bool operatorCreatedThisLaunch, bool silenced)
         => !operatorCreatedThisLaunch && !silenced && string.IsNullOrWhiteSpace(callsign);
@@ -133,10 +168,11 @@ public partial class MainWindow
     /// <summary>The reminder's own turn, begun at the welcome.</summary>
     private async void RunCallsignReminderTurn()
     {
+        bool shown = false;
         try
         {
             await WaitUntilNoDialogOfOursIsUpAsync();
-            ShowCallsignReminderIfDue();
+            shown = ShowCallsignReminderIfDue();
         }
         catch (Exception ex)
         {
@@ -144,7 +180,7 @@ public partial class MainWindow
         }
         finally
         {
-            EndCallsignReminderTurn();
+            EndCallsignReminderTurn(shown);
         }
     }
 
@@ -185,8 +221,9 @@ public partial class MainWindow
                     continue;
                 _callsignReminderTurn = true;
                 _advisorySequenceActive = true;
-                try { ShowCallsignReminderIfDue(); }
-                finally { EndCallsignReminderTurn(); }
+                bool shown = false;
+                try { shown = ShowCallsignReminderIfDue(); }
+                finally { EndCallsignReminderTurn(shown); }
                 return;
             }
         }
@@ -202,15 +239,18 @@ public partial class MainWindow
             await Task.Delay(500);
     }
 
-    /// <summary>Spends the reminder: shown once, if it still applies.</summary>
-    private void ShowCallsignReminderIfDue()
+    /// <summary>
+    /// Spends the reminder: shown once, if it still applies. True when its
+    /// window was shown, so a landing follows its close.
+    /// </summary>
+    private bool ShowCallsignReminderIfDue()
     {
-        if (!_callsignReminderDue) return;
+        if (!_callsignReminderDue) return false;
         _callsignReminderDue = false;
         if (!CallsignReminderAppliesNow())
         {
             Tracing.TraceLine("CallsignReminder: no longer needed, not shown", TraceLevel.Info);
-            return;
+            return false;
         }
         Tracing.TraceLine("CallsignReminder: shown", TraceLevel.Info);
         // DRAFT words (Lexicon).
@@ -218,13 +258,21 @@ public partial class MainWindow
             Lexicon.Get("connect.startup.no_callsign_reminder_title"),
             Lexicon.Get("connect.startup.no_callsign_reminder_body"),
             AdvisoryKeys.NoCallsignReminder);
+        return true;
     }
 
-    private void EndCallsignReminderTurn()
+    /// <summary>
+    /// Ends the reminder's own turn and replays what waited behind it.
+    /// <paramref name="reminderShown"/> false means no window closed, so no
+    /// landing is coming to take <see cref="_arrivalJustReplayed"/>: it is
+    /// cleared here instead.
+    /// </summary>
+    private void EndCallsignReminderTurn(bool reminderShown)
     {
         _callsignReminderTurn = false;
         _advisorySequenceActive = false;
         ReplayParkedBringUp();
+        if (!reminderShown) _arrivalJustReplayed = false;
     }
 
     /// <summary>
@@ -244,7 +292,14 @@ public partial class MainWindow
         if (_pendingArrival is { } arrive)
         {
             _pendingArrival = null;
-            try { arrive(); } catch (Exception ex) { Tracing.TraceLine("CallsignReminder: arrival: " + ex.Message, TraceLevel.Warning); }
+            try
+            {
+                arrive();
+                // Home's arrival has said where the operator is; the landing
+                // the closing window posted must not say it again.
+                _arrivalJustReplayed = true;
+            }
+            catch (Exception ex) { Tracing.TraceLine("CallsignReminder: arrival: " + ex.Message, TraceLevel.Warning); }
         }
         if (_pendingSettle is { } settle)
         {
