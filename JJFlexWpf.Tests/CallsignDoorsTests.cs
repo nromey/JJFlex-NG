@@ -25,6 +25,11 @@ namespace JJFlexWpf.Tests;
 /// are walked against the vendor fake radio in
 /// <c>Radios.Tests.CallsignGateTests</c>. Shares ZeroPowerDoors' process-wide
 /// overrides with <see cref="ZeroPowerDoorsTests"/>, so the same collection.
+/// <para><b>The check is turned ON for this class (#1306).</b> Since 2026-11-24
+/// it is the operator's choice and starts off (ruled by Noel), and the doors
+/// ask the switch before the test override, so every refusal here first turns
+/// the check on, explicitly. These tests pinned "no callsign always refuses",
+/// which is now the ON behaviour. What OFF does is held at the end.</para>
 /// </remarks>
 [Collection("TuneDoors")]
 public sealed class CallsignDoorsTests : IDisposable
@@ -38,9 +43,11 @@ public sealed class CallsignDoorsTests : IDisposable
     private bool _noCallsign = true;
     private long _now = 1_000_000;
     private readonly List<string> _answers = new();
+    private readonly bool _checkWas = FlexBase.CallsignCheckOn;
 
     public CallsignDoorsTests()
     {
+        FlexBase.CallsignCheckOn = true;   // #1306: the refusals below are the check turned on
         NoiseReductionPerChannelTests.AssertWindowless();
         Assert.True(QuietRun.Silenced, "Refusing: " + QuietRun.Describe());
         Assert.True(TestSettingsRoot.Isolated, "Refusing: " + TestSettingsRoot.Failure);
@@ -58,6 +65,7 @@ public sealed class CallsignDoorsTests : IDisposable
 
     public void Dispose()
     {
+        FlexBase.CallsignCheckOn = _checkWas;
         ZeroPowerDoors.AtZeroOverride = null;
         ZeroPowerDoors.NoCallsignOverride = null;
         ZeroPowerDoors.SimpleVoxOverride = null;
@@ -312,6 +320,45 @@ public sealed class CallsignDoorsTests : IDisposable
             "if (_rig?.TxToneEngaged == true)");
         Before(Src("JJFlexWpf", "NativeMenuBar.cs"), "ZeroPowerDoors.RefuseVoxOn(Rig, \"the VOX menu\", afterMenu: true)",
             "ToggleDSP(\"VOX\", () => Rig.Vox, v => Rig.Vox = v);");
+    }
+
+    // ── #1306: the check turned off, its ruled default ────────────────────
+
+    /// <summary>
+    /// Off, every door lets the press through with no callsign and says
+    /// nothing, and the test override is never even asked: the switch comes
+    /// first, so no test can pass through the override without seeing it.
+    /// Ruled by Noel 2026-11-24: off means "It just goes through".
+    /// </summary>
+    [Fact]
+    public void With_the_check_off_every_door_lets_the_press_through_and_says_nothing()
+    {
+        FlexBase.CallsignCheckOn = false;
+        int asked = 0;
+        ZeroPowerDoors.NoCallsignOverride = rig => { asked++; return true; };   // no callsign at all
+
+        Assert.Empty(Said(_controller.PttDown));
+        Assert.Equal(PttSafetyController.PttState.PttHold, _controller.State);
+        _controller.PttUp();
+        Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+
+        _controller.KeyForCheck();
+        Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);
+        _controller.EscapeUnlock();
+
+        Assert.False(ZeroPowerDoors.RefuseTransmitPress(_rig, "a send"));
+        Assert.False(ZeroPowerDoors.RefuseTunePress(_rig, "the tune carrier"));
+        ZeroPowerDoors.SimpleVoxOverride = rig => true;
+        Assert.False(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX field"));
+        Assert.False(ZeroPowerDoors.RefuseNoCallsign(_rig, "Check your audio's start"));
+        Assert.False(ZeroPowerDoors.NoCallsign(_rig));
+        Assert.Empty(_answers);
+        Assert.Equal(0, asked);
+
+        // Positive control: turned on, the same press on the same controller is refused.
+        FlexBase.CallsignCheckOn = true;
+        Assert.Equal(new[] { NoCall }, Said(_controller.PttDown));
+        Assert.True(asked > 0);
     }
 
     [Fact]

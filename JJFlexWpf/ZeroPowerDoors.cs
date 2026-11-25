@@ -187,8 +187,15 @@ internal static class ZeroPowerDoors
     /// anything. For a door that must know whether the refusal was already
     /// said elsewhere (Check your audio's keyed refusal, #1023 item 2).
     /// </summary>
+    /// <remarks>
+    /// The operator's switch is asked FIRST (#1306): with the callsign check
+    /// off, nothing is refused and the override below is never consulted, so a
+    /// test cannot pass through the override without the switch having been
+    /// seen. The radio's own answer asks the same switch.
+    /// </remarks>
     internal static bool NoCallsign(FlexBase? rig)
     {
+        if (!FlexBase.CallsignCheckOn) return false;
         if (NoCallsignOverride != null) return NoCallsignOverride(rig);
         if (rig == null) return false;
         try { return rig.OperatorCallsignMissing; }

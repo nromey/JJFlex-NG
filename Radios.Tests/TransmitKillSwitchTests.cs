@@ -15,7 +15,11 @@ namespace Radios.Tests
     /// construction, so these cover the half that decides: arming, latching,
     /// and the refusal that stands between a keying site and an unstoppable
     /// carrier. The routing itself is checked by reading source, below.
+    /// <para>In <see cref="RadioConfigStaticsCollection"/> since #1306: the two
+    /// callsign tests turn the process-wide callsign check on, and a class
+    /// running beside them could otherwise see it change under it.</para>
     /// </remarks>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class TransmitKillSwitchTests : IDisposable
     {
         public TransmitKillSwitchTests() => TransmitKillSwitch.ResetForTests();
@@ -99,6 +103,8 @@ namespace Radios.Tests
             // radio and reported that it "never reported transmitting". Now the
             // raise is refused, nothing is recorded as raised, and the check's
             // detail line gets the sentence the operator heard.
+            // #1306: with the callsign check turned on, as it now must be.
+            using var checkOn = new CallsignCheckScope(on: true);
             string call = "";
             var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests", GetOperatorCallsign = () => call });
             var raised = typeof(TransmitKillSwitch).GetField("_carrierRaised",
@@ -129,6 +135,7 @@ namespace Radios.Tests
         [Fact]
         public void TheCallsignQuestionForACheckIsTheRadiosAndNamesTheSentence()
         {
+            using var checkOn = new CallsignCheckScope(on: true);   // #1306
             string call = "";
             var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests", GetOperatorCallsign = () => call });
             try

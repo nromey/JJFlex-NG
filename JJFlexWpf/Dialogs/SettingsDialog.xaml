@@ -332,6 +332,11 @@
                               Content="TX band lockout"
                               Margin="0,8,0,0"
                               AutomationProperties.Name="Prevent transmitting outside licensed bands"/>
+                    <!-- #1306: the callsign check, one switch for the whole
+                         computer (its neighbours are per operator). Its label,
+                         name and Ctrl+F1 text come from the Lexicon in code. -->
+                    <CheckBox x:Name="RequireCallsignCheckbox"
+                              Margin="0,8,0,0"/>
 
                     <Separator Margin="0,12,0,8"/>
 

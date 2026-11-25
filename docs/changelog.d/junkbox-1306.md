@@ -1,0 +1,1 @@
+- JJ Flexible no longer refuses to transmit when your operator has no callsign, unless you ask it to. "Require a callsign to transmit" on the License page of Settings turns that check on for everyone using JJ Flexible on this computer; it starts off.

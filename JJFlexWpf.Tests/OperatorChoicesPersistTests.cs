@@ -39,11 +39,14 @@ public sealed class OperatorChoicesPersistTests
             Assert.Equal((int)Radios.TransmitElsewhereNotice.SpeakAndTone, chosen.TransmitElsewhereNotice);
             chosen.FrequencyKeyReads = (int)Radios.FrequencyKeySlices.Selected;
             chosen.TransmitElsewhereNotice = (int)Radios.TransmitElsewhereNotice.ToneOnly;
+            Assert.False(chosen.RequireCallsignToTransmit);   // #1306: off by default
+            chosen.RequireCallsignToTransmit = true;
             AudioOutputConfig.PersistUserScope(chosen, dir);
 
             var reopened = AudioOutputConfig.Load(dir);
             Assert.Equal((int)Radios.FrequencyKeySlices.Selected, reopened.FrequencyKeyReads);
             Assert.Equal((int)Radios.TransmitElsewhereNotice.ToneOnly, reopened.TransmitElsewhereNotice);
+            Assert.True(reopened.RequireCallsignToTransmit);
             Assert.Equal(25, reopened.CwSpeedWpm); // the rest of the root file as it was
         }
         finally
@@ -60,6 +63,7 @@ public sealed class OperatorChoicesPersistTests
         {
             FrequencyKeyReads = (int)Radios.FrequencyKeySlices.Transmit,
             TransmitElsewhereNotice = (int)Radios.TransmitElsewhereNotice.Off,
+            RequireCallsignToTransmit = true,
         };
         var perRadio = new AudioOutputConfig
         {
@@ -72,6 +76,7 @@ public sealed class OperatorChoicesPersistTests
 
         Assert.Equal((int)Radios.FrequencyKeySlices.Transmit, perRadio.FrequencyKeyReads);
         Assert.Equal((int)Radios.TransmitElsewhereNotice.Off, perRadio.TransmitElsewhereNotice);
+        Assert.True(perRadio.RequireCallsignToTransmit);
         Assert.Equal(31, perRadio.CwSpeedWpm); // nothing else is taken
     }
 

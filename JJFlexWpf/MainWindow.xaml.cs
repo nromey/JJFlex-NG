@@ -413,6 +413,8 @@ public partial class MainWindow : UserControl
                 // #979: "hertz" on spoken filter widths, so a session that
                 // never connects reads widths the way the operator chose.
                 Radios.HertzSpeech.SpeakUnits = userConfig.FilterWidthUnits;
+                // #1306: the callsign check, before any radio can be opened.
+                Radios.FlexBase.CallsignCheckOn = userConfig.RequireCallsignToTransmit;
             }
         }
         catch (Exception ex)

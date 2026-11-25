@@ -24,12 +24,24 @@ namespace Radios.Tests;
 /// <c>JJFlexWpf.Tests/CallsignDoorsTests</c>.
 /// </para>
 /// <para>The callsign in these tests is the conventional placeholder N0CALL.</para>
+/// <para><b>The check is turned ON for this whole class (#1306).</b> Since
+/// 2026-11-24 the operator chooses, and the check starts off (ruled by Noel:
+/// "Transmit interlock on a radio has to be turned on"). Every test here was
+/// written when the gate had no switch and pinned "no callsign always refuses",
+/// which was right then and is the ON behaviour now; each one turns the check on
+/// first, here, rather than relying on a default that changed. What the check
+/// does when OFF is held in <c>CallsignCheckSwitchTests</c>.</para>
 /// </remarks>
 [Collection(RadioConfigStaticsCollection.Name)]
 public sealed class CallsignGateTests : IDisposable
 {
     private readonly RadioConfigStaticsScope _scope = new(nameof(CallsignGateTests));
-    public void Dispose() => _scope.Dispose();
+    private readonly CallsignCheckScope _checkOn = new(on: true);
+    public void Dispose()
+    {
+        _checkOn.Dispose();
+        _scope.Dispose();
+    }
 
     private const string FakeCall = "N0CALL";
 

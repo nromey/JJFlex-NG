@@ -3199,6 +3199,10 @@ namespace Radios.Tests
                 // whose mode changes says the channel and dial, then the mode
                 // request's own clause. DRAFT words, for Codex.
                 "connect.home.sixty_meter_channel_arriving",
+                // Junk box batch 28 (2026-11-24), #1306: the callsign check
+                // becomes the operator's choice. DRAFT words, for Codex.
+                "settings.license.require_callsign_label",
+                "settings.license.require_callsign_help",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

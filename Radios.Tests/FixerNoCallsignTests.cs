@@ -31,6 +31,9 @@ namespace Radios.Tests
         private const string Run = "TX-CALLSIGN";
         private readonly RadioConfigStaticsScope _scope = new(nameof(FixerNoCallsignTests));
         private readonly RadioCase _case = new();
+        // #1306: the check starts off; these hold what it does when turned on.
+        // Off, the stages are not asked about a callsign at all (CallsignCheckSwitchTests).
+        private readonly CallsignCheckScope _checkOn = new(on: true);
         private string _call = "";
         private readonly FlexBase _rig;
         private bool _counted;
@@ -45,6 +48,7 @@ namespace Radios.Tests
         public void Dispose()
         {
             _case.Dispose();
+            _checkOn.Dispose();
             _scope.Dispose();
         }
 

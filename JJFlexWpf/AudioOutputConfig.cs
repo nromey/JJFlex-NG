@@ -446,6 +446,20 @@ namespace JJFlexWpf
         public bool FilterWidthUnits { get; set; } = true;
 
         /// <summary>
+        /// Whether JJ Flexible refuses to transmit while the operator has no
+        /// callsign (#1306; the gate itself is #335). One value for the whole
+        /// computer, NOT per operator (ruled by Noel 2026-11-24 13:40), so it is
+        /// kept here in the root file and not in the operator's licence file
+        /// beside "TX band lockout". False, the ruled default (13:43-13:44,
+        /// "Transmit interlock on a radio has to be turned on"), for every file
+        /// written before it existed too. Made live through
+        /// <see cref="Radios.FlexBase.CallsignCheckOn"/>; the root decides it,
+        /// with a radio or without (<see cref="TakeOperatorChoicesFrom"/>,
+        /// <see cref="PersistUserScope"/>).
+        /// </summary>
+        public bool RequireCallsignToTransmit { get; set; }
+
+        /// <summary>
         /// The preferences that describe the OPERATOR rather than a radio and
         /// were added without a per-radio meaning: copied from the root config
         /// over a per-radio one, so the root (written by every Settings OK,
@@ -459,6 +473,7 @@ namespace JJFlexWpf
             FrequencyKeyReads = root.FrequencyKeyReads;
             TransmitElsewhereNotice = root.TransmitElsewhereNotice;
             FilterWidthUnits = root.FilterWidthUnits;   // #979
+            RequireCallsignToTransmit = root.RequireCallsignToTransmit;   // #1306
         }
 
         /// <summary>Per-slot meter tone configurations. LEGACY: retained so old
@@ -854,6 +869,10 @@ namespace JJFlexWpf
             // #979: "hertz" on spoken filter widths, the same way: chosen
             // before the first connection, it is kept.
             rootConfig.FilterWidthUnits = chosen.FilterWidthUnits;
+            // #1306: the callsign check is one switch for the whole computer,
+            // so it lives only here; missing from this list, Settings' choice
+            // made with no radio connected would revert at the next start.
+            rootConfig.RequireCallsignToTransmit = chosen.RequireCallsignToTransmit;
             rootConfig.Save(rootConfigDir);
         }
 
@@ -1153,6 +1172,10 @@ namespace JJFlexWpf
 
             // The word "hertz" on spoken filter widths (#979), the same way.
             Radios.HertzSpeech.SpeakUnits = FilterWidthUnits;
+
+            // The callsign check (#1306), the same way: the gate lives in
+            // Radios and reads one static at each key.
+            Radios.FlexBase.CallsignCheckOn = RequireCallsignToTransmit;
 
             // #128: restoring saved state is not a toggle. The engine's
             // operator booleans tone in their setters (so every road answers

@@ -19,6 +19,12 @@ namespace Radios
     /// into the radio.
     /// </para>
     /// <para>
+    /// <b>Since 2026-11-24 the operator chooses (#1306).</b> Noel ruled that
+    /// the check must be able to be turned off, and that it starts off: see
+    /// <see cref="CallsignCheckOn"/>. Everything below describes the gate with
+    /// the check turned on.
+    /// </para>
+    /// <para>
     /// <b>Which callsign.</b> The OPERATOR's, entered under Radio, Operators,
     /// and explicitly NOT the radio's: <see cref="Callsign"/> is the radio's
     /// front-panel field, and under a borrowed or shared radio it is somebody
@@ -60,7 +66,44 @@ namespace Radios
         /// spaces. Any other text counts as a callsign; checking that it is a
         /// real, licensed one is the verification design's job, not this gate's.
         /// </summary>
-        public bool OperatorCallsignMissing => CallsignMissing(Callouts?.GetOperatorCallsign);
+        /// <remarks>
+        /// False whenever <see cref="CallsignCheckOn"/> is off (#1306), which
+        /// is the default: with the check off the key simply goes through, on
+        /// every route, because every door and every chokepoint reaches the gate
+        /// through here. The callsign is not even read then.
+        /// </remarks>
+        public bool OperatorCallsignMissing => CallsignCheckOn && CallsignMissing(Callouts?.GetOperatorCallsign);
+
+        private static volatile bool _callsignCheckOn;
+
+        /// <summary>
+        /// The operator's switch for this gate (#1306): one value for the whole
+        /// computer, read cheaply at every key. On, a key with no operator
+        /// callsign is refused, exactly as #335 built it; off, the default, the
+        /// key goes through and nothing is said.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Ruled by Noel 2026-11-24</b> (13:26 to 13:46): "A ham should
+        /// be able to enter their callsign or not and still be able to use their
+        /// radio", the switch is per computer and not per operator, and its
+        /// default is OFF: "Transmit interlock on a radio has to be turned on."
+        /// Off means "It just goes through": no refusal and no reminder per key.</para>
+        /// <para><b>One live value.</b> Stored in the root settings file
+        /// (<c>AudioOutputConfig.RequireCallsignToTransmit</c>, which this layer
+        /// cannot see), and pushed here by the application at startup, after
+        /// Settings, at connect, and from Check your audio's turn-off button.
+        /// Nothing reads a file on a key press. Starting OFF, the ruled default,
+        /// so a radio opened before anything has set it does not refuse.</para>
+        /// <para>A plain static field read cannot throw, so the gate never
+        /// refuses by accident because the switch could not be read. The
+        /// callsign read itself still refuses when it throws, as before, but
+        /// only with the switch on.</para>
+        /// </remarks>
+        public static bool CallsignCheckOn
+        {
+            get => _callsignCheckOn;
+            set => _callsignCheckOn = value;
+        }
 
         /// <summary>The decision, pure, so a test can hold it without a radio.</summary>
         internal static bool CallsignMissing(Func<string>? provider)
