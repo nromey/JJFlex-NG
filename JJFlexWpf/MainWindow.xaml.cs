@@ -6105,6 +6105,78 @@ public partial class MainWindow : UserControl
 
     // ── Power On/Off ──────────────────────────────────────
 
+    /// <summary>The rig the live push-to-talk controller was built for (#901).</summary>
+    private FlexBase? _pttControllerRig;
+
+    /// <summary>What a power-on does with a push-to-talk controller already live (#901).</summary>
+    internal enum PowerOnPttStep
+    {
+        /// <summary>No live controller: build one.</summary>
+        Build,
+        /// <summary>A live, idle controller: dispose it, then build one, so two never run.</summary>
+        DisposeThenBuild,
+        /// <summary>A live controller with the key in use, on the same rig: keep it; build none.
+        /// Disposing it would unkey, and a second would run beside it.</summary>
+        KeepLive,
+        /// <summary>A live controller with the key in use, and the rig has changed (#915's
+        /// reconnect path): change nothing here, build as before, and say so in the trace.
+        /// Its fix point, UnwireRadioEvents, is #915's.</summary>
+        LeaveForReconnectPath,
+    }
+
+    /// <summary>
+    /// Whether a push-to-talk controller can be disposed without changing
+    /// anything on the air or dropping a safety hold (#901): no key held or
+    /// locked (Idle), no release still waiting for the radio's receive, no
+    /// reflected-power cut hold, and no external transmit being watched. Pure,
+    /// over the controller's public state.
+    /// </summary>
+    internal static bool PttControllerIsIdle(PttSafetyController c) =>
+        c.State == PttSafetyController.PttState.Idle
+        && !c.AwaitingRadioReceive
+        && !c.CutHold.Holding
+        && !c.ExternalTransmitWatch;
+
+    /// <summary>The rule for <see cref="PowerOnPttStep"/>. Pure.</summary>
+    internal static PowerOnPttStep DecidePowerOnPtt(bool haveLive, bool liveIdle, bool sameRig) =>
+        !haveLive ? PowerOnPttStep.Build
+        : liveIdle ? PowerOnPttStep.DisposeThenBuild
+        : sameRig ? PowerOnPttStep.KeepLive
+        : PowerOnPttStep.LeaveForReconnectPath;
+
+    /// <summary>
+    /// The push-to-talk controller after a power-on (#901): a power-on raised
+    /// while the radio is already on used to build a second controller and
+    /// leave the first running, with its timers acting through
+    /// <c>() =&gt; RigControl</c>. Never unkeys, and never carries a held key
+    /// onto a different rig.
+    /// </summary>
+    internal PttSafetyController PttControllerAtPowerOn(Func<PttSafetyController> build)
+    {
+        var live = _pttController;
+        var rig = RigControl;
+        var step = DecidePowerOnPtt(live != null, live != null && PttControllerIsIdle(live),
+            ReferenceEquals(_pttControllerRig, rig));
+        switch (step)
+        {
+            case PowerOnPttStep.KeepLive:
+                Tracing.TraceLine("MainWindow PowerNowOn: a power-on arrived with the key in use (state "
+                    + live!.State + "); the live push-to-talk controller was kept and no second one built", TraceLevel.Info);
+                return live;
+            case PowerOnPttStep.LeaveForReconnectPath:
+                Tracing.TraceLine("MainWindow PowerNowOn: a power-on arrived with the key in use (state "
+                    + live!.State + ") on a different rig; a new controller is built and the old one left as before", TraceLevel.Warning);
+                break;
+            case PowerOnPttStep.DisposeThenBuild:
+                Tracing.TraceLine("MainWindow PowerNowOn: an idle push-to-talk controller was already live; disposed before building its replacement", TraceLevel.Info);
+                live!.Dispose();
+                break;
+        }
+        var built = build();
+        _pttControllerRig = rig;
+        return built;
+    }
+
     private void PowerNowOn()
     {
         // Capture the off→on transition FIRST, before anything in this body
@@ -6201,11 +6273,12 @@ public partial class MainWindow : UserControl
             CurrentPttConfig = PttConfig.Load(
                 OpenParms.ConfigDirectory,
                 OpenParms.GetOperatorName());
-            _pttController = new PttSafetyController(
+            // #901: never two controllers; a live one with the key in use is kept.
+            _pttController = PttControllerAtPowerOn(() => new PttSafetyController(
                 () => RigControl,
                 () => _radioPowerOn,
                 CurrentPttConfig,
-                text => StatusTx.Text = text);
+                text => StatusTx.Text = text));
 
             // A held key the controller ends at its fifteen-minute limit may
             // still be down (#1020): latched as an app-ended hold, so it keys
