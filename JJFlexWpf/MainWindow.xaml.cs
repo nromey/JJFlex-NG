@@ -3236,6 +3236,17 @@ public partial class MainWindow : UserControl
         _pttHoldEndedByApp = true;
         _pttLatchDoor = _pttHoldDoor;
         _pttHoldDoor = PttDoor.None;
+        // Only the repeat guard goes, as at a dialog's window loss (#900), and
+        // here, at the latch itself, so every route that latches gets it once
+        // (#1089): Escape, the radio's own off, a reference's end, the hard
+        // kill, the fifteen-minute limit and the reflected-power cut. The up
+        // the guard waits for may never reach us (focus can leave before the
+        // key comes up), and a guard left set silently swallowed the next
+        // press. Every door drops a held key's repeats before the edge, and
+        // every up that does arrive clears the guard anyway, so the guard is
+        // not what stops a held key keying again; the latch and the hold
+        // filter are (the second check of #1089, N1).
+        _pttKeyDown = false;
         Tracing.TraceLine("PTT: the app ended a held push to talk (" + why + "); until the key is"
             + " really let go, a down the hold filter reads as the hold continuing keys nothing", TraceLevel.Info);
     }
@@ -3286,17 +3297,9 @@ public partial class MainWindow : UserControl
     {
         bool held = _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold;
         end();
-        if (held)
-        {
-            LatchAppEndedHold(why);
-            // Only the repeat guard goes, as at a dialog's window loss (#900):
-            // the up it waits for may never reach us (focus can leave before
-            // the key comes up), and a guard left set silently swallowed the
-            // next press. Every door drops a held key's repeats before the
-            // edge, so the guard is not what stops a held key keying again;
-            // the latch and the hold filter are (the second check of #1089, N1).
-            _pttKeyDown = false;
-        }
+        // A hold is latched, which also clears the repeat guard (see
+        // LatchAppEndedHold, #1089).
+        if (held) LatchAppEndedHold(why);
         else ResetPttInput();
     }
 
