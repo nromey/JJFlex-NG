@@ -89,9 +89,16 @@ public sealed class CallsignCheckSettingTests
     {
         NoiseReductionPerChannelTests.AssertWindowless();
         string repo = Repo();
-        string dialog = File.ReadAllText(Path.Combine(repo, "JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs"));
+        string settingsMain = File.ReadAllText(Path.Combine(repo, "JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs"));
+        // Loaded where TX band lockout loads, saved where OK saves (repair 1:
+        // the bodies live in SettingsDialog.CallsignCheck.cs).
+        int lockoutLoad = settingsMain.IndexOf("TxLockoutCheckbox.IsChecked = _licenseConfig.TxLockout;", System.StringComparison.Ordinal);
+        Assert.True(lockoutLoad > 0 && settingsMain.IndexOf("LoadCallsignCheck();", System.StringComparison.Ordinal) > lockoutLoad);
+        int lockoutSave = settingsMain.IndexOf("_licenseConfig.TxLockout = TxLockoutCheckbox.IsChecked == true;", System.StringComparison.Ordinal);
+        Assert.True(lockoutSave > 0 && settingsMain.IndexOf("SaveCallsignCheck();", System.StringComparison.Ordinal) > lockoutSave);
+        string dialog = File.ReadAllText(Path.Combine(repo, "JJFlexWpf", "Dialogs", "SettingsDialog.CallsignCheck.cs"));
         Assert.Contains("RequireCallsignCheckbox.IsChecked = _audioConfig.RequireCallsignToTransmit;", dialog);
-        Assert.Contains("_audioConfig.RequireCallsignToTransmit = RequireCallsignCheckbox.IsChecked == true;", dialog);
+        Assert.Contains("_audioConfig.RequireCallsignToTransmit = NewerCallsignCheck(", dialog);
         // Its name and its Ctrl+F1 text are set, from the Lexicon.
         Assert.Contains("AutomationProperties.SetName(RequireCallsignCheckbox,", dialog);
         Assert.Contains("JJFlexHelp.SetText(RequireCallsignCheckbox,", dialog);

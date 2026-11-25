@@ -173,6 +173,81 @@ public sealed class CallsignCheckOffButtonTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Repair 1 (Codex's check, B1): Settings opened FIRST, then Audio, Audio
+    /// Workshop, Check your audio, the button, and back to Settings' OK with the
+    /// checkbox untouched. Settings' checkbox was filled before the button was
+    /// pressed, so it still says "on"; its OK must not put the check back on,
+    /// live, in the shared settings in memory (the shell's CurrentAudioConfig,
+    /// which is the very object Settings was given), or in the root file.
+    /// </summary>
+    [Fact]
+    public void Settings_open_behind_the_button_does_not_turn_the_check_back_on_at_OK()
+    {
+        string root = RadioConfig.AppDataRoot;
+        var shared = AudioOutputConfig.Load(root);   // the shell's CurrentAudioConfig
+        shared.RequireCallsignToTransmit = true;
+        AudioOutputConfig.PersistUserScope(shared, root);
+        var sourceWas = AudioWorkshopDialog.AudioConfigSource;
+        AudioWorkshopDialog.AudioConfigSource = () => shared;
+        try
+        {
+            Run(rig =>
+            {
+                var (settings, box) = Settings(shared);
+                Assert.True(box.IsChecked);                              // positive control: Settings opened on "on"
+
+                var (dialog, button) = Dialog(rig);
+                Assert.True(Refuse(dialog));
+                button.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                Assert.False(FlexBase.CallsignCheckOn);
+                Assert.False(shared.RequireCallsignToTransmit);
+                Assert.True(box.IsChecked);                              // the open checkbox is stale: that is the hazard
+
+                SettingsOk(settings, shared, root);
+            });
+            Assert.False(FlexBase.CallsignCheckOn);
+            Assert.False(shared.RequireCallsignToTransmit);
+            Assert.False(AudioOutputConfig.Load(root).RequireCallsignToTransmit);
+        }
+        finally
+        {
+            AudioWorkshopDialog.AudioConfigSource = sourceWas;
+        }
+    }
+
+    /// <summary>
+    /// The opposite control: a change the operator makes to the checkbox in
+    /// this Settings session is the newest choice, and OK applies it, either way.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false)]    // opened ticked, operator unticks
+    [InlineData(false, true)]    // opened unticked, operator ticks
+    public void A_change_the_operator_makes_in_Settings_is_what_OK_applies(bool opened, bool chosen)
+    {
+        string root = RadioConfig.AppDataRoot;
+        var shared = AudioOutputConfig.Load(root);
+        shared.RequireCallsignToTransmit = opened;
+        AudioOutputConfig.PersistUserScope(shared, root);
+        FlexBase.CallsignCheckOn = opened;
+        Run(_ =>
+        {
+            var (settings, box) = Settings(shared);
+            Assert.Equal(opened, box.IsChecked);
+            box.IsChecked = chosen;
+            SettingsOk(settings, shared, root);
+        });
+        Assert.Equal(chosen, FlexBase.CallsignCheckOn);
+        Assert.Equal(chosen, shared.RequireCallsignToTransmit);
+        Assert.Equal(chosen, AudioOutputConfig.Load(root).RequireCallsignToTransmit);
+
+        // The rule itself: a changed box wins; an unchanged box keeps the switch as it is now.
+        Assert.False(SettingsDialog.NewerCallsignCheck(loaded: true, ticked: false, liveNow: true));
+        Assert.True(SettingsDialog.NewerCallsignCheck(loaded: false, ticked: true, liveNow: false));
+        Assert.False(SettingsDialog.NewerCallsignCheck(loaded: true, ticked: true, liveNow: false));
+        Assert.True(SettingsDialog.NewerCallsignCheck(loaded: false, ticked: false, liveNow: true));
+    }
+
     [Fact]
     public void The_refusal_in_this_window_names_the_button_and_the_doors_name_Settings()
     {
@@ -212,6 +287,35 @@ public sealed class CallsignCheckOffButtonTests : IDisposable
 
     private static void Put(object target, string name, object? value) =>
         typeof(CheckYourAudioDialog).GetField(name, Private)!.SetValue(target, value);
+
+    /// <summary>
+    /// Settings as an uninitialized object (no window), given the shared
+    /// settings it is opened on and an unhosted checkbox, then loaded by its own
+    /// License-tab code.
+    /// </summary>
+    private static (SettingsDialog Dialog, CheckBox Box) Settings(AudioOutputConfig shared)
+    {
+        var settings = (SettingsDialog)RuntimeHelpers.GetUninitializedObject(typeof(SettingsDialog));
+        var box = new CheckBox();
+        typeof(SettingsDialog).GetField("_audioConfig", Private)!.SetValue(settings, shared);
+        typeof(SettingsDialog).GetField("RequireCallsignCheckbox", Private)!.SetValue(settings, box);
+        typeof(SettingsDialog).GetMethod("LoadCallsignCheck", Private)!.Invoke(settings, null);
+        return (settings, box);
+    }
+
+    /// <summary>
+    /// Settings' OK for this field, by its own steps: its save into the shared
+    /// settings (<c>SaveCallsignCheck</c>, which SaveSettings calls), the line of
+    /// <see cref="AudioOutputConfig.Apply"/> that makes it live (Apply itself
+    /// starts sound engines, so only its line is replayed; the source test pins
+    /// that line inside Apply), and NativeMenuBar's SettingsApplied persist.
+    /// </summary>
+    private static void SettingsOk(SettingsDialog settings, AudioOutputConfig shared, string root)
+    {
+        typeof(SettingsDialog).GetMethod("SaveCallsignCheck", Private)!.Invoke(settings, null);
+        FlexBase.CallsignCheckOn = shared.RequireCallsignToTransmit;
+        AudioOutputConfig.PersistUserScope(shared, root);
+    }
 
     private static void Run(Action<FlexBase> body)
     {

@@ -354,12 +354,8 @@ namespace JJFlexWpf.Dialogs
             TxLockoutCheckbox.IsChecked = _licenseConfig.TxLockout;
             // #1306: the callsign check sits with the licence choices but is
             // kept in the computer-wide audio settings, not the operator's file.
-            // DRAFT words (Lexicon).
-            RequireCallsignCheckbox.Content = Lexicon.Get("settings.license.require_callsign_label");
-            System.Windows.Automation.AutomationProperties.SetName(RequireCallsignCheckbox,
-                Lexicon.Get("settings.license.require_callsign_label"));
-            JJFlexHelp.SetText(RequireCallsignCheckbox, Lexicon.Get("settings.license.require_callsign_help"));
-            RequireCallsignCheckbox.IsChecked = _audioConfig.RequireCallsignToTransmit;
+            // See SettingsDialog.CallsignCheck.cs.
+            LoadCallsignCheck();
 
             // Country selector — display names, stored as country codes
             _countryMap = new[] { ("US", Lexicon.Get("settings.license.country_united_states")) };
@@ -1637,8 +1633,9 @@ namespace JJFlexWpf.Dialogs
             _licenseConfig.BoundaryNotifications = BandBoundaryCheckbox.IsChecked == true;
             _licenseConfig.TxLockout = TxLockoutCheckbox.IsChecked == true;
             // #1306: into the audio settings, made live by _audioConfig.Apply()
-            // below and kept in the root file by PersistUserScope.
-            _audioConfig.RequireCallsignToTransmit = RequireCallsignCheckbox.IsChecked == true;
+            // below and kept in the root file by PersistUserScope. The newer
+            // choice wins: see SettingsDialog.CallsignCheck.cs.
+            SaveCallsignCheck();
             int cIdx = CountryCombo.SelectedIndex;
             _licenseConfig.Country = cIdx >= 0 && cIdx < _countryMap.Length ? _countryMap[cIdx].Item1 : "US";
             _licenseConfig.EnforceTxRules = EnforceTxRulesCheckbox.IsChecked == true;
