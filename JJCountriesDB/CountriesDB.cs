@@ -132,6 +132,22 @@ namespace JJCountriesDB
             return rv;
         }
 
+        /// <summary>
+        /// Where the country file is read from: beside the application
+        /// (<see cref="AppContext.BaseDirectory"/>), where the build and the
+        /// installer put it, so a shortcut or a host started in another folder
+        /// still finds it (#1298). The bare name, read from the working
+        /// directory as before, only when the file is not there.
+        /// </summary>
+        internal static string DatabasePath()
+        {
+            string beside = Path.Combine(AppContext.BaseDirectory, dbName);
+            if (File.Exists(beside)) return beside;
+            Tracing.TraceLine("CountriesDB: " + dbName + " is not beside the application (" + AppContext.BaseDirectory
+                + "); reading it from the working directory", TraceLevel.Warning);
+            return dbName;
+        }
+
         public CountriesDB()
         {
             Tracing.TraceLine("CountriesDB constructor", TraceLevel.Info);
@@ -142,7 +158,7 @@ namespace JJCountriesDB
             hasher = new Dictionary<char, int>();
             try
             {
-                sr = new StreamReader(dbName);
+                sr = new StreamReader(DatabasePath());
                 while (true)
                 {
                     Record rr = readRecord(sr);
