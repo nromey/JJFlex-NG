@@ -116,6 +116,12 @@ public partial class RadioComboBox : UserControl
     /// </summary>
     public event Action<KeyEventArgs>? BoxKeyDown;
 
+    /// <summary>
+    /// The list was opened. The Mode combo re-reads the radio's modes here
+    /// (#1017), so what it offers is the radio's list as it stands.
+    /// </summary>
+    public event EventHandler? DropDownOpened;
+
     public RadioComboBox()
     {
         InitializeComponent();
@@ -210,6 +216,8 @@ public partial class RadioComboBox : UserControl
             UpdateRigFunction(TheComboBox.SelectedItem);
         }
     }
+
+    private void TheComboBox_DropDownOpened(object? sender, EventArgs e) => DropDownOpened?.Invoke(this, e);
 
     private void TheComboBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {

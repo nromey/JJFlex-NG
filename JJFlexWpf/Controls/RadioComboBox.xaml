@@ -19,6 +19,7 @@
                   MinWidth="80"
                   IsTabStop="{Binding IsTabStop, RelativeSource={RelativeSource AncestorType=UserControl}}"
                   SelectionChanged="TheComboBox_SelectionChanged"
+                  DropDownOpened="TheComboBox_DropDownOpened"
                   PreviewKeyDown="TheComboBox_PreviewKeyDown" />
     </StackPanel>
 </UserControl>
