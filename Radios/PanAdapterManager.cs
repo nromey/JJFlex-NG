@@ -523,6 +523,59 @@ namespace Radios
         }
 
         /// <summary>
+        /// The zero beat's decision, pure so a test can reach it: up to
+        /// <see cref="iterations"/> samples, <paramref name="pause"/> after each
+        /// one that does not settle it. A frequency seen in half the samples
+        /// settles it at once; otherwise the frequency seen most often, the
+        /// first seen on a tie, as before.
+        /// </summary>
+        /// <remarks>
+        /// #1335: the early exit tested the NEWLY made tally's count, always 1,
+        /// instead of the stored entry's, so it never fired: every zero beat
+        /// took all ten samples, the whole second, and the answer came from the
+        /// most-seen pass. The answer is the same except in a five-to-five tie,
+        /// where the first frequency to reach five now wins rather than the
+        /// first one seen. A settled answer of 0 (no zero beat, seen in half the
+        /// samples) still falls to the most-seen pass, as before.
+        /// </remarks>
+        internal static ulong ZeroBeatPick(Func<ulong> sample, Action pause, out int taken)
+        {
+            ulong value = 0;
+            taken = 0;
+            int sanity = iterations;
+            var freqs = new Dictionary<ulong, freqCount>();
+            while (sanity-- != 0)
+            {
+                ulong f = sample();
+                taken++;
+                if (freqs.TryGetValue(f, out freqCount seen))
+                {
+                    seen.Count++;
+                    if (seen.Count == (iterations / 2))
+                    {
+                        value = f;
+                        break;
+                    }
+                }
+                else freqs.Add(f, new freqCount(f, 1));
+                pause();
+            }
+            if (value == 0)
+            {
+                int maxCount = 0;
+                foreach (freqCount fc in freqs.Values)
+                {
+                    if (fc.Count > maxCount)
+                    {
+                        maxCount = fc.Count;
+                        value = fc.Freq;
+                    }
+                }
+            }
+            return value;
+        }
+
+        /// <summary>
         /// The zero beat's worker, on a bare thread <see cref="ZeroBeatFreq"/>
         /// starts. Its boundary catch (#484) traces and leaves
         /// <see cref="zeroBeatValue"/> at 0, which ZeroBeatFreq already returns
@@ -534,36 +587,9 @@ namespace Radios
         {
             try
             {
-                int sanity = iterations;
-                Dictionary<ulong, freqCount> freqs = new Dictionary<ulong, freqCount>();
-                while (sanity-- != 0)
-                {
-                    freqCount freqCT = new freqCount(flexPan.ZeroBeatFreq(), 1);
-                    if (freqs.Keys.Contains(freqCT.Freq))
-                    {
-                        freqs[freqCT.Freq].Count++;
-                        if (freqCT.Count == (iterations / 2))
-                        {
-                            zeroBeatValue = freqCT.Freq;
-                            break;
-                        }
-                    }
-                    else freqs.Add(freqCT.Freq, freqCT);
-                    Thread.Sleep(totalTime / iterations);
-                }
-                if (zeroBeatValue == 0)
-                {
-                    int maxCount = 0;
-                    foreach (freqCount fc in freqs.Values)
-                    {
-                        if (fc.Count > maxCount)
-                        {
-                            maxCount = fc.Count;
-                            zeroBeatValue = fc.Freq;
-                        }
-                    }
-                }
-                Tracing.TraceLine("zeroBeatProc finished:" + zeroBeatValue.ToString(), TraceLevel.Info);
+                zeroBeatValue = ZeroBeatPick(() => flexPan.ZeroBeatFreq(),
+                    () => Thread.Sleep(totalTime / iterations), out int taken);
+                Tracing.TraceLine("zeroBeatProc finished:" + zeroBeatValue.ToString() + " after " + taken + " samples", TraceLevel.Info);
             }
             catch (Exception ex)
             {
