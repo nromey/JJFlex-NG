@@ -3159,7 +3159,11 @@ public class NativeMenuBar : IDisposable
                             // answer to a press made a minute ago, the only way
                             // back to the file, and — when any profile load was
                             // requested — the pointer to reload your own
-                            // profile. It never says where the radio was left.
+                            // profile. When a profile was not put back it names
+                            // the kind, the profile to select and what JJ
+                            // Flexible last loaded (#1292), never where the
+                            // radio IS: a load read back from FlexLib is not
+                            // the radio's own report.
                             Radios.ScreenReaderOutput.Speak(
                                 ProfileReporter.ComparisonFinishedSentence(report, path),
                                 Radios.VerbosityLevel.Critical, interrupt: true);

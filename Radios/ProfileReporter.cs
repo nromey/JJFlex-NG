@@ -835,20 +835,30 @@ namespace Radios
         /// spoken sentence needs (#1292, Noel 2026-11-24: "be specific, name
         /// the type and the profile"). Carried out of the walk outcome, not
         /// re-derived: <see cref="Before"/> is the selection recorded before
-        /// the first load, and <see cref="NowOn"/> the last profile the walk
-        /// actually loaded for this kind. A request that was never confirmed
-        /// as loaded is not carried, because it is never spoken (#469 round
+        /// the first load, and <see cref="LastLoaded"/> the last profile the
+        /// walk loaded for this kind. A request that was never read back as
+        /// loaded is not carried, because it is never spoken (#469 round
         /// four).
         /// </summary>
+        /// <remarks>Repair round 1: "loaded" is <see cref="ProfileLoadResult.QueuedAndSettled"/>,
+        /// FlexLib's own field read back and the state settled, which
+        /// <see cref="LoadProfileAndWait"/> documents as still not the radio's
+        /// own report. So the sentences say what JJ Flexible last loaded, never
+        /// where the radio is, and with nothing loaded they say it is not
+        /// known rather than assume a load happened (every load can be
+        /// refused before dispatch, as when Protect this radio's setup is
+        /// turned on after the walk was planned).</remarks>
         public sealed class NotPutBackItem
         {
             public ProfileTypes Kind;
             /// <summary>The selection in use before the walk; empty when none
             /// was selected, null when it could not be read.</summary>
             public string Before;
-            /// <summary>The last profile of this kind the walk loaded; null when
-            /// it loaded none (a kind only a global load moved).</summary>
-            public string NowOn;
+            /// <summary>The last profile of this kind the walk loaded (read back
+            /// from FlexLib's field, not the radio's own report); null when none
+            /// was: every load refused or unconfirmed, or a kind only a global
+            /// load moved.</summary>
+            public string LastLoaded;
         }
 
         /// <summary>
@@ -858,7 +868,7 @@ namespace Radios
         internal static List<NotPutBackItem> NotPutBackItems(IEnumerable<ProfileWalkOutcome> outcomes)
             => outcomes
                 .Where(o => o != null && KindsNotPutBack(new[] { o }).Any())
-                .Select(o => new NotPutBackItem { Kind = o.ProfileType, Before = o.OriginalSelection, NowOn = o.LastLoaded })
+                .Select(o => new NotPutBackItem { Kind = o.ProfileType, Before = o.OriginalSelection, LastLoaded = o.LastLoaded })
                 .ToList();
 
         /// <summary>The kind as the spoken "not put back" sentences name it
@@ -877,11 +887,14 @@ namespace Radios
         /// <list type="bullet">
         /// <item>A recorded profile that was not put back: name it and its kind,
         /// and where to select it.</item>
-        /// <item>Global, none before: the radio stays on the last global
-        /// profile loaded, and no command clears a global selection (measured
-        /// on the 8600 for global only).</item>
-        /// <item>TX or mic, none before: which profile the radio is now on,
-        /// claiming nothing about clearing.</item>
+        /// <item>Global, none before: no command clears a global selection
+        /// (measured on the 8600 for global only), and the last global profile
+        /// JJ Flexible loaded, if any; with none loaded, that it is not known
+        /// whether one is selected now, and where to check.</item>
+        /// <item>TX or mic, none before: the last profile of that kind JJ
+        /// Flexible loaded, claiming nothing about clearing.</item>
+        /// <item>Never where the radio IS: a load read back from FlexLib's
+        /// field is not the radio's own report (repair round 1).</item>
         /// <item>Nothing recorded before: say so, and where to check.</item>
         /// </list>
         /// </summary>
@@ -892,16 +905,16 @@ namespace Radios
                 return Lexicon.Get("settings.restore_export.not_put_back.select",
                     ("kind", kind), ("name", item.Before));
             if (item.Before == null)
-                return item.NowOn != null
+                return item.LastLoaded != null
                     ? Lexicon.Get("settings.restore_export.not_put_back.unknown_now_on",
-                        ("kind", kind), ("name", item.NowOn))
+                        ("kind", kind), ("name", item.LastLoaded))
                     : Lexicon.Get("settings.restore_export.not_put_back.unknown", ("kind", kind));
             if (item.Kind == ProfileTypes.global)
-                return item.NowOn != null
-                    ? Lexicon.Get("settings.restore_export.not_put_back.global_none", ("name", item.NowOn))
+                return item.LastLoaded != null
+                    ? Lexicon.Get("settings.restore_export.not_put_back.global_none", ("name", item.LastLoaded))
                     : Lexicon.Get("settings.restore_export.not_put_back.global_none_unknown");
-            return item.NowOn != null
-                ? Lexicon.Get("settings.restore_export.not_put_back.none_now_on", ("kind", kind), ("name", item.NowOn))
+            return item.LastLoaded != null
+                ? Lexicon.Get("settings.restore_export.not_put_back.none_now_on", ("kind", kind), ("name", item.LastLoaded))
                 : Lexicon.Get("settings.restore_export.not_put_back.unknown", ("kind", kind));
         }
 

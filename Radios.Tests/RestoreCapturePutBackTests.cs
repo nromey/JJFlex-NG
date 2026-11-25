@@ -37,6 +37,11 @@ namespace Radios.Tests
             public readonly List<string> Loads = new List<string>();
             public readonly List<string> ReadsAfterALoad = new List<string>();
             public readonly List<string> Spoken = new List<string>();
+            /// <summary>Loads refused before dispatch (repair round 1): as
+            /// SelectProfileGuarded refuses once Protect this radio's setup is
+            /// on, the selection does not move and the walk is told NotQueued.</summary>
+            public Func<ProfileTypes, string, bool> Refuses = (_, _) => false;
+            public readonly List<string> Refused = new List<string>();
 
             public string Read(ProfileTypes t)
             {
@@ -52,6 +57,11 @@ namespace Radios.Tests
             public ProfileReporter.ProfileLoadResult Load(ProfileTypes t, string name)
             {
                 Assert.False(Keyed, "a profile load was sent while keyed: " + t + " " + name);
+                if (Refuses(t, name))
+                {
+                    Refused.Add(t + ":" + name);
+                    return ProfileReporter.ProfileLoadResult.NotQueued;
+                }
                 Loads.Add(t + ":" + name);
                 switch (t)
                 {
@@ -534,7 +544,7 @@ namespace Radios.Tests
             var items = ProfileReporter.NotPutBackItems(outcomes);
             Assert.Equal(ProfileReporter.KindsNotPutBack(outcomes), items.Select(i => i.Kind));
             Assert.Equal("", items[0].Before);
-            Assert.Equal("SO2RDefault", items[0].NowOn);
+            Assert.Equal("SO2RDefault", items[0].LastLoaded);
             Assert.Equal("Default", items[1].Before);
         }
 
@@ -565,21 +575,22 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_global_that_was_none_before_says_which_global_the_radio_is_on_and_that_it_cannot_be_cleared()
+        public void A_global_that_was_none_before_names_the_last_global_loaded_and_that_it_cannot_be_cleared()
         {
             var s = TheBench(globalBefore: "");
             var outcomes = s.Capture();
 
             string said = ProfileReporter.RestoreFinishedSentence(ExportFrom(outcomes), Path);
-            Assert.Contains("SO2RDefault global profile", said);
+            Assert.Contains("global profile JJ Flexible loaded was SO2RDefault", said);
             Assert.Contains("cannot be cleared", said);
+            AssertNoClaimOfWhereTheRadioIs(said);
             // TX and mic were put back, so they are not named as not put back.
             Assert.DoesNotContain("transmit", said);
             Assert.DoesNotContain("microphone", said);
         }
 
         [Fact]
-        public void A_selection_nobody_recorded_names_where_the_radio_is_now_without_a_profile_to_select()
+        public void A_selection_nobody_recorded_names_the_last_loaded_without_a_profile_to_select()
         {
             var s = TheBench();
             s.Global = null;
@@ -587,20 +598,22 @@ namespace Radios.Tests
 
             string said = ProfileReporter.RestoreFinishedSentence(ExportFrom(outcomes), Path);
             Assert.Contains("could not be read", said);
-            Assert.Contains("SO2RDefault global profile", said);
+            Assert.Contains("global profile JJ Flexible loaded was SO2RDefault", said);
             Assert.DoesNotContain("select your", said);
+            AssertNoClaimOfWhereTheRadioIs(said);
         }
 
         [Fact]
-        public void An_empty_TX_selection_names_the_profile_it_is_now_on_and_claims_no_clearing()
+        public void An_empty_TX_selection_names_the_last_one_loaded_and_claims_no_clearing()
         {
             var s = TheBench(globalBefore: "JJRadioDefault");
             s.Tx = "";
             var outcomes = s.Capture();
 
             string said = ProfileReporter.RestoreFinishedSentence(ExportFrom(outcomes), Path);
-            Assert.Contains("SO2R_TX2 transmit profile", said);
+            Assert.Contains("transmit profile JJ Flexible loaded was SO2R_TX2", said);
             Assert.DoesNotContain("cleared", said);
+            AssertNoClaimOfWhereTheRadioIs(said);
         }
 
         [Fact]
@@ -624,8 +637,60 @@ namespace Radios.Tests
 
             string said = ProfileReporter.ComparisonFinishedSentence(ReportFrom(outcomes), Path);
             Assert.StartsWith("Profile report saved to " + Path, said);
-            Assert.Contains("SO2RDefault global profile", said);
+            Assert.Contains("global profile JJ Flexible loaded was SO2RDefault", said);
             Assert.Contains("cannot be cleared", said);
+            AssertNoClaimOfWhereTheRadioIs(said);
+        }
+
+        /// <summary>
+        /// Repair round 1 (the checker's B1): with no global selected before,
+        /// every global load refused before dispatch (Protect this radio's
+        /// setup turned on after the walk was planned) leaves the radio on no
+        /// global at all. The walk still counts the attempts, so global is
+        /// listed as not put back, with nothing loaded. Neither finisher may
+        /// then say a global profile was loaded; each says it is not known,
+        /// and where to check. Goes red if the sentence asserts a loaded
+        /// global again.
+        /// </summary>
+        [Fact]
+        public void Every_load_refused_leaves_no_claim_of_a_loaded_global_in_either_finished_sentence()
+        {
+            foreach (bool comparison in new[] { false, true })
+            {
+                var s = TheBench(globalBefore: "");
+                s.Refuses = (_, _) => true;
+                var outcomes = comparison ? s.Compare(ProfileTypes.global, ProfileTypes.tx) : s.Capture();
+
+                // The case is real: attempts were counted, nothing loaded, the
+                // radio never moved, and global is listed with no profile.
+                Assert.Empty(s.Loads);
+                Assert.NotEmpty(s.Refused);
+                Assert.Equal("", s.Global);
+                var global = Assert.Single(ProfileReporter.NotPutBackItems(outcomes), i => i.Kind == ProfileTypes.global);
+                Assert.Null(global.LastLoaded);
+
+                string said = comparison
+                    ? ProfileReporter.ComparisonFinishedSentence(ReportFrom(outcomes), Path)
+                    : ProfileReporter.RestoreFinishedSentence(ExportFrom(outcomes), Path);
+                Assert.Contains(Path, said);
+                Assert.Contains("not known", said);
+                Assert.Contains("Profiles, in the Radio menu", said);
+                Assert.DoesNotContain("profile loaded", said, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("JJ Flexible loaded", said, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("JJRadioDefault", said);
+                Assert.DoesNotContain("SO2RDefault", said);
+                AssertNoClaimOfWhereTheRadioIs(said);
+            }
+        }
+
+        /// <summary>A load read back from FlexLib's field is not the radio's own
+        /// report (LoadProfileAndWait), so no "not put back" sentence says where
+        /// the radio IS; it says what JJ Flexible last loaded (repair round 1).</summary>
+        private static void AssertNoClaimOfWhereTheRadioIs(string said)
+        {
+            Assert.DoesNotContain("radio stays on", said, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("radio is now on", said, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("radio is on", said, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
