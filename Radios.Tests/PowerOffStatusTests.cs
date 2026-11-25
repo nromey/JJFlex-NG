@@ -150,7 +150,7 @@ public sealed class PowerOffStatusTests
         int unwire = src.IndexOf("public void UnwireRadioEvents()", StringComparison.Ordinal);
         int unsub = src.IndexOf("RigControl.PowerStatus -= PowerStatusHandler;", unwire, StringComparison.Ordinal);
         int boundary = src.IndexOf("_powerOffCauses.Boundary();", unwire, StringComparison.Ordinal);
-        int end = src.IndexOf("StatusText.Text = Radios.Lexicon.Get(\"connect.home.status_ready_no_radio\");", unwire, StringComparison.Ordinal);
+        int end = src.IndexOf("_featureGateSignature = null;", unwire, StringComparison.Ordinal);
         Assert.True(unwire >= 0 && unsub > unwire && boundary > unsub && boundary < end,
             "UnwireRadioEvents must end a held restart once it has stopped listening for power notices");
     }
