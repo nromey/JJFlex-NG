@@ -5917,7 +5917,7 @@ public partial class MainWindow : UserControl
                     Radios.ScreenReaderOutput.Speak(bypassed, VerbosityLevel.Terse);
                 else if (isAutoATU)
                     Tracing.TraceLine("FlexAntTuneStartStop: " + e.Status
-                        + " with no tune cycle of ours running; the radio's own bypass, not said", TraceLevel.Info);
+                        + " with no tune cycle of ours running; not said", TraceLevel.Info);
                 break;
             }
             case "NotStarted":
