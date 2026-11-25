@@ -997,19 +997,24 @@ public sealed class TxClaritySurfaceTests
         Assert.Equal(o.Offer.Proposed, kept.ToSettings());           // exactly the offer
         Assert.True(b.Cond.Clarity.Enabled);
         Assert.Equal(o.Offer.Proposed, b.Cond.Clarity.Settings);
-        Assert.Equal(Lexicon.Get("audio.clarity_suggest.kept_switched_on"), b.F.Spoken.Said[0].Text);
+        // One utterance: kept and switched on, then the next step. (A second sentence on the same subject would cover the first unheard.)
+        Assert.Single(b.F.Spoken.Said);
+        Assert.Equal(Lexicon.Get("audio.clarity_suggest.kept_switched_on") + " " + Lexicon.Get("audio.clarity_suggest.next_step"), b.F.Spoken.Said[0].Text);
         Assert.Equal(Radios.Speech.SpeechSubject.ClaritySuggest, b.F.Spoken.Said[0].Subject);
 
         // Already on: the same Keep says it without "switched on".
         b.F.Spoken.Clear();
         b.Noise.KeepClaritySuggestion(o.Offer.Proposed, Dialogs.ClaritySuggestDialog.Source);
-        Assert.Equal(Lexicon.Get("audio.clarity_suggest.kept"), b.F.Spoken.Said[0].Text);
+        Assert.StartsWith(Lexicon.Get("audio.clarity_suggest.kept") + " ", b.F.Spoken.Said[0].Text);
+        Assert.DoesNotContain(Lexicon.Get("audio.clarity_suggest.kept_switched_on"), b.F.Spoken.Said[0].Text);
 
         // Keyed: Keep waits for the unkey, like every switch, and says so.
         b.Noise.SetClarityOn(false, Home);
         b.Unkey();
         b.X.Keyed = true; b.X.Buffer();
+        b.F.Spoken.Clear();
         Assert.Equal(TxChangeTiming.AtUnkey, b.Noise.KeepClaritySuggestion(o.Offer.Proposed, Dialogs.ClaritySuggestDialog.Source).Timing);
+        Assert.Contains(Lexicon.Get("audio.denoise.tx.at_unkey"), b.F.Spoken.Said[0].Text);   // and it says it waits
         b.X.Buffer();
         Assert.False(b.Cond.Clarity.Enabled);
         b.Unkey();

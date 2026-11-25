@@ -94,6 +94,9 @@ namespace JJFlexWpf.Dialogs
             root.Children.Add(buttons);
 
             string label = Lexicon.Get("audio.clarity_suggest.report_label");
+            // First in the tab order, so the reader lands on what the pass says
+            // (it is measuring; then what it found), not on a button.
+            _report.TabIndex = 0;
             AutomationProperties.SetName(_report, label);
             JJFlexHelp.SetText(_report, Lexicon.Get("audio.clarity_help.suggest.report"));
             var reportPanel = new DockPanel();
@@ -132,7 +135,9 @@ namespace JJFlexWpf.Dialogs
         {
             if (_flow == null) return;
             ChainAuditionFolder.Clear(_folder);
-            Say(Lexicon.Get("audio.clarity_suggest.working"));
+            // Shown, not spoken: focus lands on this field as the window opens,
+            // and the reader says what the field holds. Speaking it too would
+            // say it twice.
             _report.Text = Lexicon.Get("audio.clarity_suggest.working");
             var token = _cancel.Token;
             Task.Run(() => _flow.Run(token, null), token).ContinueWith(task =>
@@ -191,13 +196,14 @@ namespace JJFlexWpf.Dialogs
         {
             if (_noise == null || _outcome?.Offer is not { } offer) return;
             StopOurPlayback();
+            // The controller says it: kept, that it waits for the unkey when it does, and the next step, as one utterance.
             _noise.KeepClaritySuggestion(offer.Proposed, Source);
             // Kept once: nothing is left to keep or adjust in this pass.
             _outcome = null;
             _report.Text = Lexicon.Get("audio.clarity_suggest.next_step");
-            Sync();
-            Say(_report.Text);
+            // Focus moves BEFORE Keep is disabled, so it never lands on nothing.
             if (_keep.IsKeyboardFocusWithin || _adjust.IsKeyboardFocusWithin) _check.Focus();
+            Sync();
         }
 
         private void StopOurPlayback()

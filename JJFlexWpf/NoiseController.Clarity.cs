@@ -214,7 +214,9 @@ namespace JJFlexWpf
         /// become JJ Clarity's setting, as the operator's own choice, and JJ
         /// Clarity is switched on if it was off, because what was heard as
         /// "after" had it on (Track J, item 14). ONE switch: held for the
-        /// unkey while keyed. Called only from the pass's Keep, with the
+        /// unkey while keyed. It says, as one utterance: kept (and switched on,
+        /// when it was off), that it waits for the unkey when it does, and the
+        /// next step. Called only from the pass's Keep, with the
         /// offer <c>TryGetGuardedOffer</c> gave: never the raw proposal, and
         /// never by itself (never auto-apply, #262).
         /// </summary>
@@ -230,6 +232,10 @@ namespace JJFlexWpf
                 (was.Enabled ? "on; " : "off; ") + was.ToSettings(), "on; " + keep.ToSettings());
             Say(L(was.Enabled ? "audio.clarity_suggest.kept" : "audio.clarity_suggest.kept_switched_on"), SpeechSubject.ClaritySuggest);
             SayAtUnkey(timing);
+            // The next step is part of the SAME utterance: a second sentence on
+            // this subject queued behind the first would cover it before it was
+            // heard (a subject's newest sentence replaces an unheard older one).
+            Say(L("audio.clarity_suggest.next_step"), SpeechSubject.ClaritySuggest);
             return timing;
         }
 
