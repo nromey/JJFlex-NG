@@ -942,6 +942,19 @@ namespace Radios.Tests
                 "settings.tuning.step_label_hz",
                 "settings.tuning.step_label_khz",
                 "settings.tuning.step_label_mhz",
+                // Junk box batch 30, #314: export and import one filter preset.
+                // DRAFT, for Codex.
+                "settings.filter_presets.export_button",
+                "settings.filter_presets.export_name",
+                "settings.filter_presets.export_help",
+                "settings.filter_presets.import_button",
+                "settings.filter_presets.import_name",
+                "settings.filter_presets.import_help",
+                "settings.filter_presets.file_filter",
+                "settings.filter_presets.exported",
+                "settings.filter_presets.export_failed",
+                "settings.filter_presets.imported",
+                "settings.filter_presets.import_unreadable",
                 "settings.profile.choice_would_be_refused",
                 // SmartLink connection tiers, Track B (2026-11-20): the names of the
                 // SmartLink methods in the walk's move sentence, and the reason a

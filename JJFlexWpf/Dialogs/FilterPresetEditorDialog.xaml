@@ -51,10 +51,17 @@
                         Click="MoveDownButton_Click"/>
             </StackPanel>
 
-            <Button x:Name="ResetButton" Content="_Reset to Defaults"
-                    Width="140" HorizontalAlignment="Left"
-                    AutomationProperties.Name="Reset presets to defaults for this mode"
-                    Click="ResetButton_Click"/>
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="ResetButton" Content="_Reset to Defaults"
+                        Width="140" Margin="0,0,4,0"
+                        AutomationProperties.Name="Reset presets to defaults for this mode"
+                        Click="ResetButton_Click"/>
+                <!-- #314: share one preset as a file. Words set in code from the Lexicon. -->
+                <Button x:Name="ExportButton" Width="80" Margin="0,0,4,0"
+                        Click="ExportButton_Click"/>
+                <Button x:Name="ImportButton" Width="80"
+                        Click="ImportButton_Click"/>
+            </StackPanel>
         </StackPanel>
     </DockPanel>
 </local:JJFlexDialog>

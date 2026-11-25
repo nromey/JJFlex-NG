@@ -11,7 +11,6 @@ namespace JJFlexWpf.Dialogs
     public partial class FilterPresetEditorDialog : JJFlexDialog
     {
         private readonly FilterPresets _presets;
-        private static readonly string[] ModeKeys = { "SSB", "CW", "DIGI", "AM", "FM" };
 
         /// <summary>True if the user made changes and clicked OK.</summary>
         public bool Changed { get; private set; }
@@ -23,9 +22,19 @@ namespace JJFlexWpf.Dialogs
             // Delete on the list presses this button (#774).
             DeleteKeyRemoves.SetButton(PresetList, DeleteButton);
 
-            foreach (var mode in ModeKeys)
+            foreach (var mode in FilterPresets.ModeKeys)
                 ModeCombo.Items.Add(mode);
             ModeCombo.SelectedIndex = 0;
+
+            // #314: export and import one preset. DRAFT words, for Codex.
+            ExportButton.Content = Lexicon.Get("settings.filter_presets.export_button");
+            System.Windows.Automation.AutomationProperties.SetName(ExportButton,
+                Lexicon.Get("settings.filter_presets.export_name"));
+            JJFlexHelp.SetText(ExportButton, Lexicon.Get("settings.filter_presets.export_help"));
+            ImportButton.Content = Lexicon.Get("settings.filter_presets.import_button");
+            System.Windows.Automation.AutomationProperties.SetName(ImportButton,
+                Lexicon.Get("settings.filter_presets.import_name"));
+            JJFlexHelp.SetText(ImportButton, Lexicon.Get("settings.filter_presets.import_help"));
         }
 
         private string CurrentMode => ModeCombo.SelectedItem as string ?? "SSB";
@@ -60,6 +69,7 @@ namespace JJFlexWpf.Dialogs
             bool hasSel = PresetList.SelectedIndex >= 0;
             EditButton.IsEnabled = hasSel;
             DeleteButton.IsEnabled = hasSel;
+            ExportButton.IsEnabled = hasSel;
             MoveUpButton.IsEnabled = hasSel && PresetList.SelectedIndex > 0;
             MoveDownButton.IsEnabled = hasSel && PresetList.SelectedIndex < PresetList.Items.Count - 1;
         }
@@ -183,19 +193,88 @@ namespace JJFlexWpf.Dialogs
             RefreshList();
         }
 
-        private void EnsureModeExists(string mode)
+        // Copy the defaults into an editable list (FilterPresets.EditableList,
+        // shared with import since #314).
+        private void EnsureModeExists(string mode) => _presets.EditableList(mode);
+
+        private static void SayFileOutcome(string sentence, VerbosityLevel level) =>
+            ScreenReaderOutput.Speak(sentence, level, interrupt: true,
+                subject: Radios.Speech.SpeechSubject.FilterPresetFile);
+
+        /// <summary>
+        /// Export the selected preset as a file another operator can import
+        /// (#314), in the shape of the Audio Workshop preset export. Needs no
+        /// radio: a preset is a file.
+        /// </summary>
+        private void ExportButton_Click(object sender, RoutedEventArgs e)
         {
-            if (!_presets.Modes.Any(m =>
-                string.Equals(m.Mode, mode, StringComparison.OrdinalIgnoreCase)))
+            int idx = PresetList.SelectedIndex;
+            var presets = GetCurrentPresets();
+            if (idx < 0 || idx >= presets.Count) return;
+            var preset = presets[idx];
+
+            var sfd = new Microsoft.Win32.SaveFileDialog
             {
-                // Copy defaults into editable list
-                var defaults = _presets.GetPresetsForMode(mode);
-                _presets.Modes.Add(new ModePresets
-                {
-                    Mode = mode,
-                    Presets = defaults.Select(p => new FilterPreset(p.Name, p.Low, p.High)).ToList()
-                });
+                Filter = Lexicon.Get("settings.filter_presets.file_filter"),
+                DefaultExt = ".xml",
+                FileName = SafeFileName(CurrentMode + " " + preset.Name) + ".xml",
+            };
+            if (sfd.ShowDialog(this) != true) return;
+
+            string file = System.IO.Path.GetFileName(sfd.FileName);
+            if (FilterPresets.ExportPreset(sfd.FileName, CurrentMode, preset))
+                SayFileOutcome(Lexicon.Get("settings.filter_presets.exported", ("name", preset.Name), ("file", file)),
+                    VerbosityLevel.Terse);
+            else
+                SayFileOutcome(Lexicon.Get("settings.filter_presets.export_failed", ("file", file)),
+                    VerbosityLevel.Critical);
+        }
+
+        /// <summary>
+        /// Import one preset from a file into its mode list (#314). Never
+        /// applies anything to the radio, works with no radio, and never moves
+        /// or rewrites the file it reads. The preset joins this editor's
+        /// working list like an added one, so OK keeps it and Cancel drops it.
+        /// The editor opens only with an operator profile loaded, so there is
+        /// always somewhere for OK to save it.
+        /// </summary>
+        private void ImportButton_Click(object sender, RoutedEventArgs e)
+        {
+            var ofd = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = Lexicon.Get("settings.filter_presets.file_filter"),
+                DefaultExt = ".xml",
+            };
+            if (ofd.ShowDialog(this) != true) return;
+
+            string file = System.IO.Path.GetFileName(ofd.FileName);
+            if (!FilterPresets.TryReadPresetFile(ofd.FileName,
+                    System.IO.Path.GetFileNameWithoutExtension(ofd.FileName), out var read) || read == null)
+            {
+                // Honest failure: a bad file never quietly becomes a preset.
+                SayFileOutcome(Lexicon.Get("settings.filter_presets.import_unreadable", ("file", file)),
+                    VerbosityLevel.Critical);
+                return;
             }
+
+            var (added, mode) = _presets.ImportPreset(read, CurrentMode);
+            Changed = true;
+            if (!string.Equals(mode, CurrentMode, StringComparison.OrdinalIgnoreCase))
+                ModeCombo.SelectedItem = mode; // refreshes the list
+            else
+                RefreshList();
+            int at = GetCurrentPresets().FindIndex(p => ReferenceEquals(p, added));
+            if (at >= 0) PresetList.SelectedIndex = at;
+            SayFileOutcome(Lexicon.Get("settings.filter_presets.imported", ("name", added.Name), ("mode", mode)),
+                VerbosityLevel.Terse);
+        }
+
+        private static string SafeFileName(string name)
+        {
+            var bad = System.IO.Path.GetInvalidFileNameChars();
+            var chars = name.Select(c => Array.IndexOf(bad, c) >= 0 ? '_' : c).ToArray();
+            string safe = new string(chars).Trim();
+            return safe.Length == 0 ? "filter preset" : safe;
         }
 
         private void OkButton_Click(object sender, RoutedEventArgs e)
