@@ -1462,6 +1462,7 @@ public partial class MainWindow : UserControl
             else
             {
                 Tracing.TraceLine($"UpdateStatus error: {ex.Message}", TraceLevel.Error);
+                _powerOffCause = Radios.PowerOffStatus.Cause.StatusUnreadable;   // #564
                 PowerNowOffInternal();
             }
         }
@@ -6105,6 +6106,11 @@ public partial class MainWindow : UserControl
 
     // ── Power On/Off ──────────────────────────────────────
 
+    /// <summary>Why the next <see cref="PowerNowOffInternal"/> runs, set by the
+    /// caller that knows (#564); read and reset there. A power-off notice that
+    /// is not a profile import's is the command loop ending.</summary>
+    private Radios.PowerOffStatus.Cause _powerOffCause = Radios.PowerOffStatus.Cause.Disconnected;
+
     /// <summary>The rig the live push-to-talk controller was built for (#901).</summary>
     private FlexBase? _pttControllerRig;
 
@@ -6807,12 +6813,16 @@ public partial class MainWindow : UserControl
             RigControl.ModeChanged -= OnRadioModeChanged;
         }
 
+        // #564: say what is known about why, not "power off" for every cause.
+        var powerOffCause = importing ? Radios.PowerOffStatus.Cause.ProfileImport : _powerOffCause;
+        _powerOffCause = Radios.PowerOffStatus.Cause.Disconnected;
+        Tracing.TraceLine("MainWindow PowerNowOff: cause " + powerOffCause, TraceLevel.Info);
         if (!_isClosing)
         {
             FreqOut.Clear();
-            WriteStatus("Power", "Off");
+            WriteStatus("Power", Radios.PowerOffStatus.PowerField(powerOffCause));
             EnableDisableWindowControls(false);
-            StatusText.Text = Radios.Lexicon.Get("connect.home.status_power_off");
+            StatusText.Text = Radios.PowerOffStatus.StatusText(powerOffCause);
         }
     }
 
@@ -9208,6 +9218,8 @@ public partial class MainWindow : UserControl
             Dispatcher.Invoke(powerNowOff);
             return;
         }
+        // #564: its callers are the confirmed restart routes.
+        _powerOffCause = Radios.PowerOffStatus.Cause.Restart;
         PowerNowOffInternal();
     }
 

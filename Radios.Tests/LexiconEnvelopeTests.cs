@@ -2689,6 +2689,13 @@ namespace Radios.Tests
                 "connect.home.frequency_both",
                 "connect.home.frequency_selected",
                 "connect.home.frequency_transmit",
+                // Junk box batch 29 (#564): Home's status line and power field
+                // say what is known about why the radio stopped reading as on,
+                // shown text only. DRAFT prose.
+                "connect.home.status_disconnected",
+                "connect.home.status_not_responding",
+                "connect.home.status_field_power_off",
+                "connect.home.status_field_power_unknown",
                 "settings.speech.frequency_key_both",
                 "settings.speech.frequency_key_help",
                 "settings.speech.frequency_key_label",
