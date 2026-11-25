@@ -5250,9 +5250,13 @@ namespace Radios
                                 // a failed tune (UpdateATUStatus sets display
                                 // flags only), and our bypass made the radio
                                 // remember TUNE_MANUAL_BYPASS, which the connect
-                                // rule above reads as the operator's own Off,
-                                // and which was spoken as "ATU bypassed" right
-                                // after the failure. So the radio keeps whatever
+                                // rule above reads as the operator's own Off.
+                                // (It was not spoken: the old code turned
+                                // automatic off before the radio's reply, so the
+                                // reply arrived out of automatic and said
+                                // nothing. Kept with the switch on automatic, it
+                                // would have said "ATU bypassed" after the
+                                // failure.) So the radio keeps whatever
                                 // its tuner held after the failure, and the next
                                 // tune press runs another ATU cycle.
                                 break;

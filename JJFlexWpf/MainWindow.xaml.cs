@@ -5903,10 +5903,21 @@ public partial class MainWindow : UserControl
                 break;
             case "Bypass":
             case "ManualBypass":
+            {
+                // #1221: said only as the result of a tune press's ATU cycle;
+                // the radio's own bypass on a frequency change (a memory miss,
+                // or a memory hit whose solution is bypass) says nothing.
+                // Read before EndAtuCycle, which stops the cycle's timer.
+                bool ourCycleRunning = _atuTuneTimer != null;
                 EndAtuCycle(AtuCycleEnd.Result);
-                if (isAutoATU)
-                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_bypassed"), VerbosityLevel.Terse);
+                string? bypassed = FlexBase.AtuBypassStatusSentence(e.Status, isAutoATU, ourCycleRunning);
+                if (bypassed != null)
+                    Radios.ScreenReaderOutput.Speak(bypassed, VerbosityLevel.Terse);
+                else if (isAutoATU)
+                    Tracing.TraceLine("FlexAntTuneStartStop: " + e.Status
+                        + " with no tune cycle of ours running; the radio's own bypass, not said", TraceLevel.Info);
                 break;
+            }
             case "NotStarted":
             case "Aborted":
                 EndAtuCycle(AtuCycleEnd.Result);
