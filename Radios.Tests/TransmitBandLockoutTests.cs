@@ -473,7 +473,9 @@ public sealed class TransmitBandLockoutTests : IDisposable
         string src = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "JJFlexWpf", "FreqOutHandlers.cs")).Replace("\r\n", "\n");
         int start = src.IndexOf("public bool CanTransmitHere()", StringComparison.Ordinal);
         Assert.True(start > 0);
-        int end = src.IndexOf("public string GetTxLockoutMessage()", start, StringComparison.Ordinal);
+        // The method that followed it, GetTxLockoutMessage, had no caller and
+        // was removed (#1307); the body now ends at the next member.
+        int end = src.IndexOf("private bool _lockoutJudgedSelected;", start, StringComparison.Ordinal);
         string body = src.Substring(start, end - start);
         Assert.Contains("Rig.TransmitSliceSignal()", body, StringComparison.Ordinal);
         Assert.Contains("TransmitBandLockout.Judge(", body, StringComparison.Ordinal);

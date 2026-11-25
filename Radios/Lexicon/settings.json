@@ -122,7 +122,6 @@
   "settings.band.select_band_required_classic_title": "required",
   "settings.band.select_band_required_title": "Required",
   "settings.band.subband_label": "{license} {mode}",
-  "settings.band.tx_lockout_message": { "text": "The TX band lockout setting blocked this transmission. Check your transmit frequency and the License tab in Settings.", "delivery": null },
   "settings.build.spoken": "Version {version}, {configuration}, built {date}.",
   "settings.build.spoken_no_date": "Version {version}, {configuration}.",
   "settings.build.unavailable": "This build does not report a version. Help, About has the full details.",

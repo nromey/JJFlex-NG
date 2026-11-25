@@ -4435,14 +4435,6 @@ public class FreqOutHandlers
     /// so its trace line is written once per change, not on every check.</summary>
     private bool _lockoutJudgedSelected;
 
-    /// <summary>
-    /// Get a message explaining why TX is blocked at the current frequency.
-    /// </summary>
-    public string GetTxLockoutMessage()
-    {
-        return Lexicon.Get("settings.band.tx_lockout_message");
-    }
-
     #endregion
 
 }
