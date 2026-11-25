@@ -2916,7 +2916,10 @@ Module globals
         ' There must be a default operator!
         ' #1306: remembered so the no-callsign reminder is not shown on the
         ' launch that has just been through the operator form, which asks.
-        Dim operatorCreatedThisLaunch As Boolean = False
+        ' Two routes: on a first run PersonalData's own load opens the form and
+        ' the new operator is already the default, so the loop below never
+        ' runs; otherwise the loop asks for a default operator.
+        Dim operatorCreatedThisLaunch As Boolean = Operators.CreatedOperatorOnLoad
         While CurrentOp Is Nothing
             SetCurrentOp(Operators.TheDefault, Operators.DefaultID)
             If CurrentOp Is Nothing Then

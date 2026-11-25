@@ -106,10 +106,35 @@ public sealed class NoCallsignReminderTests
         string g = Src("globals.vb");
         Assert.Contains("WpfMainWindow.OperatorCallsignSource = AddressOf currentOperatorCallsign", g, StringComparison.Ordinal);
         Assert.Contains("WpfMainWindow.OperatorCreatedThisLaunch = operatorCreatedThisLaunch", g, StringComparison.Ordinal);
-        // Set inside the loop's "no operator yet" branch, the first run.
+        // Set inside the loop's "no default operator" branch.
         var loop = Regex.Match(g, @"While CurrentOp Is Nothing(?<body>.*?)End While", RegexOptions.Singleline);
         Assert.True(loop.Success);
         Assert.Contains("operatorCreatedThisLaunch = True", loop.Groups["body"].Value, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_first_run_creates_the_operator_inside_PersonalData_and_the_flag_starts_from_that()
+    {
+        // Repair round 3: on an empty Operators folder PersonalData's own load
+        // opens the operator form, the new operator is the default when it
+        // returns, and the loop above never runs. The bench saw the reminder
+        // on two of two first runs while the loop pin stayed green.
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string g = Src("globals.vb");
+        const string init = "Dim operatorCreatedThisLaunch As Boolean = Operators.CreatedOperatorOnLoad";
+        int load = g.IndexOf("Operators = New PersonalData(BaseConfigDir)", StringComparison.Ordinal);
+        int flag = g.IndexOf(init, StringComparison.Ordinal);
+        int loop = g.IndexOf("While CurrentOp Is Nothing", StringComparison.Ordinal);
+        Assert.True(load >= 0 && flag > load && loop > flag,
+            "the flag starts from what PersonalData's load did, after the load and before the default-operator loop");
+
+        string p = Src("PersonalData.vb");
+        string ctor = VbBlock(p, "Public Sub New(ByVal baseDir As String)", "End Sub");
+        var firstRun = Regex.Match(ctor, @"If opFiles\.Length = 0 Then(?<body>.*?)Else", RegexOptions.Singleline);
+        Assert.True(firstRun.Success, "the constructor's no-operator branch");
+        Assert.Contains("createdOnLoad = (Add() >= 0)", firstRun.Groups["body"].Value, StringComparison.Ordinal);
+        string prop = VbBlock(p, "Public ReadOnly Property CreatedOperatorOnLoad As Boolean", "End Property");
+        Assert.Contains("Return createdOnLoad", prop, StringComparison.Ordinal);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
@@ -121,6 +146,16 @@ public sealed class NoCallsignReminderTests
         Assert.NotNull(d);
         string path = Path.Combine(d!.FullName, Path.Combine(parts));
         return File.ReadAllText(path).Replace("\r\n", "\n");
+    }
+
+    /// <summary>The text of one VB member, from its signature to its first <paramref name="end"/>.</summary>
+    private static string VbBlock(string src, string signature, string end)
+    {
+        int start = src.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(start >= 0, signature + " not found");
+        int close = src.IndexOf("\n    " + end, start, StringComparison.Ordinal);
+        Assert.True(close > start, signature + " has no " + end);
+        return src.Substring(start, close - start);
     }
 
     /// <summary>The text of one method, from its signature to the next member at the same indent.</summary>

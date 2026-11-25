@@ -461,6 +461,19 @@ Public Class PersonalData
         End Get
     End Property
 
+    Private createdOnLoad As Boolean = False
+    ''' <summary>
+    ''' True when loading found no operator and the operator form, which the
+    ''' constructor opens itself, added one (#1306). The first run goes this
+    ''' way: the new operator is already the default when the constructor
+    ''' returns, so the caller's own "no default operator" loop never runs.
+    ''' </summary>
+    Public ReadOnly Property CreatedOperatorOnLoad As Boolean
+        Get
+            Return createdOnLoad
+        End Get
+    End Property
+
     Private dfltID As Integer
     ''' <summary>
     ''' Index of the default operator.
@@ -538,8 +551,8 @@ Public Class PersonalData
         ' Less any old file a rename could not remove (#1241).
         Dim opFiles As String() = OperatorFilesToLoad(opsDir)
         If opFiles.Length = 0 Then
-            ' Create initial operator.
-            Add()
+            ' Create initial operator. Remembered for the startup reminder (#1306).
+            createdOnLoad = (Add() >= 0)
         Else
             ' Get operators. A file that cannot be read is traced, skipped and
             ' left where it is, and the rest still load (#1253): one bad file
