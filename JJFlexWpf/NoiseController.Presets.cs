@@ -318,6 +318,13 @@ namespace JJFlexWpf
                 changes.Add(new("tx:limiter", "", "", "preset"));
                 phrases.Add(L("audio.noise_surface.tx.phrase_limiter"));
             }
+            // Sprint 49 Track J: JJ Clarity, which the section also applies (a
+            // section without it puts it off), said the same way.
+            if (!SameClarity(TransmitGate.CaptureClarity(), section.Clarity ?? new TxClaritySetup()))
+            {
+                changes.Add(new("tx:clarity", "", "", "preset"));
+                phrases.Add(L("audio.noise_surface.tx.phrase_clarity"));
+            }
             return ApplyWholeTransmit(section.Spectral ?? new TxNoiseSlotSetup(), section.Neural ?? new TxNoiseSlotSetup(), section.Gate, section);
         }
 

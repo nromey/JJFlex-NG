@@ -1393,6 +1393,51 @@ public static class KeyInventory
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] FinderDoors =
     {
+        // Sprint 49 Track J (#736): JJ Clarity's doors. Its JJ key chords are
+        // proposed, not bound (they wait for Noel's ruling with Track CL's),
+        // so these rows are how a search for "clarity" finds it. Every
+        // description is DRAFT PROSE for Codex, never operator words. The
+        // last row is the RADIO's Enhanced Signal Clarity, which had no row
+        // at all: a search for "clarity" must return both, each saying which
+        // it is.
+        new FixedKeyEntry
+        {
+            Description = "WORDING PLACEHOLDER: DRAFT PROSE: JJ Clarity on or off - the computer's exciter on transmit; it adds brightness and fullness to your voice; not the radio's Enhanced Signal Clarity",
+            Scope = "Radio", Group = "Transmit",
+            MenuText = "Transmit menu, JJ Clarity (also Home, Transmission)",
+            Keywords = new[] { "jj", "clarity", "exciter", "brightness", "bright", "fullness", "full", "presence", "harmonics",
+                               "transmit", "voice", "computer", "toggle", "switch" },
+        },
+        new FixedKeyEntry
+        {
+            Description = "WORDING PLACEHOLDER: DRAFT PROSE: JJ Clarity, listen to my voice and suggest - measures your newest off-air take and proposes JJ Clarity settings; you hear before and after; nothing changes unless you keep it; it never transmits",
+            Scope = "Radio", Group = "Transmit",
+            MenuText = "Transmit menu, JJ Clarity (also Home, Transmission)",
+            Keywords = new[] { "jj", "clarity", "suggest", "suggestion", "listen", "voice", "measure", "propose", "before", "after",
+                               "take", "off-air", "presence", "brightness", "transmit" },
+        },
+        new FixedKeyEntry
+        {
+            Description = "WORDING PLACEHOLDER: DRAFT PROSE: JJ Clarity settings - presets, each band's switch, how much is added, where it starts, how hard it is made and its harmonics, in one editor",
+            Scope = "Radio", Group = "Transmit",
+            MenuText = "Transmit menu, JJ Clarity (also Home, Transmission)",
+            Keywords = new[] { "jj", "clarity", "edit", "editor", "settings", "preset", "presets", "mix", "tune", "drive", "harmonics",
+                               "brightness", "fullness", "band", "transmit" },
+        },
+        new FixedKeyEntry
+        {
+            Description = "WORDING PLACEHOLDER: DRAFT PROSE: Say what JJ Clarity is adding now - how much it is adding to your transmit audio, and whether a band's tune is held inside your transmit filter",
+            Scope = "Radio", Group = "Transmit",
+            MenuText = "Transmit menu, JJ Clarity (also Home, Transmission)",
+            Keywords = new[] { "jj", "clarity", "say", "now", "adding", "reading", "status", "transmit" },
+        },
+        new FixedKeyEntry
+        {
+            Description = "WORDING PLACEHOLDER: DRAFT PROSE: Enhanced Signal Clarity - the radio's own receive feature that combines its two receivers; not JJ Clarity, which is the computer's on transmit",
+            Scope = "Radio", Group = "Antenna",
+            MenuText = "Slice menu, Antenna, Enhanced Signal Clarity",
+            Keywords = new[] { "enhanced", "signal", "clarity", "esc", "diversity", "receive", "two", "receivers", "phase", "radio" },
+        },
         // Sprint 48 Track B (#307): the door to the system-wide keys dialog.
         // The three key rows above find the KEYS; this finds the place they
         // are changed, by the words an operator hunting it would try.

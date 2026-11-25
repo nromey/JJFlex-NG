@@ -18,6 +18,7 @@
     <Compile Include="..\..\JJPortaudio\JJPortaudio\TxAudioConditioner.cs" Link="TxAudioConditioner.cs" />
     <!-- Sprint 49 Track I: the stages the conditioner now owns, all System-only. -->
     <Compile Include="..\..\JJPortaudio\JJPortaudio\Biquad.cs" Link="Biquad.cs" />
+    <Compile Include="..\..\JJPortaudio\JJPortaudio\ClarityExciter.cs" Link="ClarityExciter.cs" />
     <Compile Include="..\..\JJPortaudio\JJPortaudio\ParametricEq.cs" Link="ParametricEq.cs" />
     <Compile Include="..\..\JJPortaudio\JJPortaudio\DeEsser.cs" Link="DeEsser.cs" />
     <Compile Include="..\..\JJPortaudio\JJPortaudio\TxRoomFloor.cs" Link="TxRoomFloor.cs" />

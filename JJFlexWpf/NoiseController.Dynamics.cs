@@ -13,8 +13,8 @@ namespace JJFlexWpf
     /// #1278): its stage, key, label, range, step, unit, and whether it is a
     /// switch (it waits for the unkey) or a continuous lever (live).
     /// </summary>
-    /// <param name="Stage"><see cref="CompressorStage"/> or <see cref="LimiterStage"/>.</param>
-    /// <param name="Key">The key <see cref="TxAudioConditioning.SetCompressorLevel"/> or <see cref="TxAudioConditioning.SetLimiterLevel"/> takes.</param>
+    /// <param name="Stage"><see cref="CompressorStage"/>, <see cref="LimiterStage"/> or <see cref="ClarityStage"/>.</param>
+    /// <param name="Key">The key <see cref="TxAudioConditioning.SetCompressorLevel"/>, <see cref="TxAudioConditioning.SetLimiterLevel"/> or <see cref="TxAudioConditioning.SetClarityLevel"/> takes.</param>
     /// <param name="Decimals">Decimal places the value is shown and stepped with.</param>
     /// <param name="FineStep">The fine step an editor offers; 0 for none beyond <paramref name="Step"/>.</param>
     /// <param name="OnHome">Whether Home carries it as a flat row (the editor carries every one).</param>
@@ -25,6 +25,8 @@ namespace JJFlexWpf
     {
         public const string CompressorStage = "compressor";
         public const string LimiterStage = "limiter";
+        /// <summary>JJ Clarity's levers (Sprint 49 Track J): the same record, so Home, the menu and the editor step and say them through the same functions.</summary>
+        public const string ClarityStage = "clarity";
     }
 
     /// <summary>
@@ -90,10 +92,13 @@ namespace JJFlexWpf
 
         /// <summary>A lever by stage and key, or null.</summary>
         public static DynamicsLever? FindDynamicsLever(string stage, string key) =>
-            (stage == DynamicsLever.LimiterStage ? LimiterLevers : CompressorLevers).FirstOrDefault(l => l.Key == key);
+            (stage == DynamicsLever.LimiterStage ? LimiterLevers : stage == DynamicsLever.ClarityStage ? ClarityLevers : CompressorLevers)
+                .FirstOrDefault(l => l.Key == key);
 
         private static string DynamicsSubject(string stage) =>
-            stage == DynamicsLever.LimiterStage ? SpeechSubject.TransmitLimiter : SpeechSubject.TransmitCompressor;
+            stage == DynamicsLever.LimiterStage ? SpeechSubject.TransmitLimiter
+            : stage == DynamicsLever.ClarityStage ? SpeechSubject.TransmitClarity
+            : SpeechSubject.TransmitCompressor;
 
         // ────────────────────────────────────────────────────────────────
         //  Switches
@@ -194,6 +199,7 @@ namespace JJFlexWpf
         /// <summary>A lever's value as intended now.</summary>
         public double DynamicsNumber(DynamicsLever lever)
         {
+            if (lever.Stage == DynamicsLever.ClarityStage) return TxDynamicsEditorModel.ValueOf(lever, TxAudioConditioning.CaptureClarity());
             var (c, l) = TxAudioConditioning.CaptureDynamics();
             return TxDynamicsEditorModel.ValueOf(lever, c, l);
         }
@@ -252,7 +258,9 @@ namespace JJFlexWpf
             double asked = Math.Clamp(value, lever.Min, lever.Max);
             var timing = lever.Stage == DynamicsLever.LimiterStage
                 ? TxAudioConditioning.SetLimiterLevel(lever.Key, (float)asked)
-                : TxAudioConditioning.SetCompressorLevel(lever.Key, (float)asked);
+                : lever.Stage == DynamicsLever.ClarityStage
+                    ? TxAudioConditioning.SetClarityLevel(lever.Key, (float)asked)
+                    : TxAudioConditioning.SetCompressorLevel(lever.Key, (float)asked);
             if (timing.Timing == TxChangeTiming.Refused)
             {
                 Say(L("audio.noise_surface.lever_refused", ("lever", DynamicsLeverName(lever))), DynamicsSubject(lever.Stage));
@@ -384,7 +392,8 @@ namespace JJFlexWpf
                 () => TxAudioConditioning.CaptureDynamics(),
                 (lever, value) => SetDynamics(lever, value, source, speak: false),
                 () => ProcessorHandoffSetting,
-                withdraw => EndDynamicsEditor(editor, withdraw));
+                withdraw => EndDynamicsEditor(editor, withdraw),
+                () => TxAudioConditioning.CaptureClarity());
         }
 
         /// <summary>
@@ -405,6 +414,9 @@ namespace JJFlexWpf
             public EditorOwned(string source) => Source = source;
             public TxCompressorSetup? CompressorFloor, CompressorLeft;
             public TxLimiterSetup? LimiterFloor, LimiterLeft;
+            // JJ Clarity (Sprint 49 Track J): the same notes over its saved
+            // class, whose every field is a read-write property the walk sees.
+            public TxClaritySetup? ClarityFloor, ClarityLeft;
             public bool? HandoffFloor, HandoffLeft;
 
             /// <summary>One of the editor's writes ran: what both stages read just before it and just after it, in the chain's order.</summary>
@@ -416,6 +428,14 @@ namespace JJFlexWpf
                 LimiterLeft ??= before.Limiter.Clone();
                 OwnedFields.Note(CompressorFloor, CompressorLeft, before.Compressor, after.Compressor);
                 OwnedFields.Note(LimiterFloor, LimiterLeft, before.Limiter, after.Limiter);
+            }
+
+            /// <summary>The same for JJ Clarity: what it read just before one of the editor's writes and just after it.</summary>
+            public void NoteClarity(TxClaritySetup before, TxClaritySetup after)
+            {
+                ClarityFloor ??= before.Clone();
+                ClarityLeft ??= before.Clone();
+                OwnedFields.Note(ClarityFloor, ClarityLeft, before, after);
             }
 
             /// <summary>The editor switched the speech processor setting.</summary>
@@ -430,12 +450,14 @@ namespace JJFlexWpf
             public bool AnythingLanded =>
                 (CompressorFloor != null && OwnedFields.Differ(CompressorFloor, CompressorLeft!))
                 || (LimiterFloor != null && OwnedFields.Differ(LimiterFloor, LimiterLeft!))
+                || (ClarityFloor != null && OwnedFields.Differ(ClarityFloor, ClarityLeft!))
                 || (HandoffFloor is bool floor && HandoffLeft is bool left && floor != left);
 
             public void Forget()
             {
                 CompressorFloor = CompressorLeft = null;
                 LimiterFloor = LimiterLeft = null;
+                ClarityFloor = ClarityLeft = null;
                 HandoffFloor = HandoffLeft = null;
             }
         }
@@ -456,6 +478,7 @@ namespace JJFlexWpf
             private readonly TxNoiseChain? _chain;
             private readonly IDisposable? _tag;
             private (TxCompressorSetup Compressor, TxLimiterSetup Limiter)? _before;
+            private TxClaritySetup? _beforeClarity;
             private bool _done;
 
             public EditorTxWrite(NoiseController owner, EditorOwned editor, TxNoiseChain? chain)
@@ -463,7 +486,7 @@ namespace JJFlexWpf
                 _owner = owner; _editor = editor; _chain = chain;
                 owner._editorTxDepth++;
                 _tag = chain?.OwnedBy(editor);
-                After(() => _before = TxAudioConditioning.CaptureDynamics());
+                After(() => { _before = TxAudioConditioning.CaptureDynamics(); _beforeClarity = TxAudioConditioning.CaptureClarity(); });
             }
 
             private void After(Action note)
@@ -475,7 +498,14 @@ namespace JJFlexWpf
             {
                 if (_done) return;
                 _done = true;
-                try { After(() => { if (_before is { } before) _editor.Note(before, TxAudioConditioning.CaptureDynamics()); }); }
+                try
+                {
+                    After(() =>
+                    {
+                        if (_before is { } before) _editor.Note(before, TxAudioConditioning.CaptureDynamics());
+                        if (_beforeClarity is { } clarity) _editor.NoteClarity(clarity, TxAudioConditioning.CaptureClarity());
+                    });
+                }
                 finally { _tag?.Dispose(); _owner._editorTxDepth--; }
             }
         }
@@ -521,6 +551,15 @@ namespace JJFlexWpf
             {
                 TxAudioConditioning.SetLimiterWholeNow(limiter);
                 any = true;
+            }
+            if (editor.ClarityFloor != null)
+            {
+                var clarity = TxAudioConditioning.CaptureClarity();
+                if (OwnedFields.TakeBack(editor.ClarityFloor, editor.ClarityLeft!, clarity) > 0)
+                {
+                    TxAudioConditioning.SetClarityWholeNow(clarity);
+                    any = true;
+                }
             }
             if (editor.HandoffFloor is bool floor && editor.HandoffLeft is bool left && floor != left && ProcessorHandoffSetting == left)
             {
@@ -624,14 +663,17 @@ namespace JJFlexWpf
         private readonly Func<(TxCompressorSetup Compressor, TxLimiterSetup Limiter)> _read;
         private readonly Action<DynamicsLever, double> _set;
         private readonly Func<bool, bool> _end;
+        private readonly Func<TxClaritySetup> _readClarity;
 
         /// <param name="end">The editor is done with: called with true to take back what this editor did (withdrawing what it asked for while keyed and is still waiting, and undoing what it landed), answering whether there was anything; with false to keep it all.</param>
+        /// <param name="readClarity">JJ Clarity as intended now (Sprint 49 Track J: the editor's Clarity sections read it); null for an editor that shows none, which reads a new setting's.</param>
         public TxDynamicsEditorModel(Func<(TxCompressorSetup, TxLimiterSetup)> read, Action<DynamicsLever, double> set,
-            Func<bool> readHandoff, Func<bool, bool> end)
+            Func<bool> readHandoff, Func<bool, bool> end, Func<TxClaritySetup>? readClarity = null)
         {
             _end = end ?? throw new ArgumentNullException(nameof(end));
             _read = read ?? throw new ArgumentNullException(nameof(read));
             _set = set ?? throw new ArgumentNullException(nameof(set));
+            _readClarity = readClarity ?? (() => new TxClaritySetup());
             var (c, l) = _read();
             OpenedWith = (c.Clone(), l.Clone());
             OpenedWithHandoff = (readHandoff ?? throw new ArgumentNullException(nameof(readHandoff)))();
@@ -645,7 +687,22 @@ namespace JJFlexWpf
         {
             var compressor = new TxCompressorSetup();
             var limiter = TxLimiterSetup.ForNewSetup();
-            return new TxDynamicsEditorModel(() => (compressor, limiter), (_, _) => { }, () => true, _ => false);
+            var clarity = new TxClaritySetup();
+            return new TxDynamicsEditorModel(() => (compressor, limiter), (_, _) => { }, () => true, _ => false, () => clarity);
+        }
+
+        /// <summary>JJ Clarity's setting now: a copy.</summary>
+        public TxClaritySetup ClaritySetting => _readClarity().Clone();
+
+        /// <summary>A JJ Clarity lever's value in a setting ("high.mix", "low.tune" and so on): the one read the controller, Home and the editor share.</summary>
+        public static double ValueOf(DynamicsLever lever, TxClaritySetup clarity)
+        {
+            int dot = lever.Key.IndexOf('.');
+            var band = clarity.Band(dot <= 0 || lever.Key[..dot] == "high");
+            return (dot > 0 ? lever.Key[(dot + 1)..] : lever.Key) switch
+            {
+                "tune" => band.TuneHz, "drive" => band.DriveDb, _ => band.MixPercent,
+            };
         }
 
         /// <summary>The setting as it read when the editor opened (for the record). Cancel does NOT put this picture back: changes asked for before the editor opened may land while it is open, and they are not the editor's to undo (repair 3).</summary>

@@ -60,6 +60,10 @@ public partial class ScreenFieldsPanel
     private CheckBox _txCompressorOn = null!, _txLimiterOn = null!, _txHandoff = null!;
     private CycleFieldControl _txCompressorPreset = null!;
     private Button _txDynamicsEdit = null!, _txCompressorNow = null!, _txLimiterNow = null!;
+    // JJ Clarity's flat rows (Sprint 49 Track J).
+    private CheckBox _txClarityOn = null!, _txClarityHighOn = null!, _txClarityLowOn = null!;
+    private CycleFieldControl _txClarityPreset = null!;
+    private Button _txClarityNow = null!, _txClaritySuggest = null!, _txClarityEdit = null!;
     private readonly List<(CycleFieldControl Field, DynamicsLever Lever, IReadOnlyList<(double Value, string Text)> Steps)> _txDynamicsFields = new();
     private readonly List<(CycleFieldControl Field, DeEsserLever Lever, IReadOnlyList<(double Value, string Text)> Steps)> _txDeEsserFields = new();
     private CheckBox _txGateAdvanced = null!;
@@ -450,6 +454,7 @@ public partial class ScreenFieldsPanel
     /// </summary>
     private void BuildTransmitDynamicsRows()
     {
+        BuildTransmitClarityRows();
         _txCompressorOn = MakeToggle(Lexicon.Get("audio.dynamics_home.compressor_on"));
         _txCompressorOn.Checked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetCompressorOn(true, TxNoiseSource); RefreshTransmitDynamicsValues(); } };
         _txCompressorOn.Unchecked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetCompressorOn(false, TxNoiseSource); RefreshTransmitDynamicsValues(); } };
@@ -468,24 +473,6 @@ public partial class ScreenFieldsPanel
         JJFlexHelp.SetText(_txCompressorPreset, Lexicon.Get("audio.dynamics_help.preset"));
         TxContent.Children.Add(_txCompressorPreset);
 
-        void AddLeverRows(IEnumerable<DynamicsLever> levers)
-        {
-            foreach (var lever in levers)
-            {
-                var l = lever;
-                var field = MakeCycle(Lexicon.Get(l.LabelKey), Array.Empty<string>());
-                field.SelectionChanged += (s, i) =>
-                {
-                    if (_polling || _txNoiseRebuilding || i < 0) return;
-                    var entry = _txDynamicsFields.FirstOrDefault(f => ReferenceEquals(f.Field, field));
-                    if (entry.Field == null || i >= entry.Steps.Count) return;
-                    NoiseCtl?.SetDynamics(entry.Lever, entry.Steps[i].Value, TxNoiseSource);
-                };
-                JJFlexHelp.SetText(field, Lexicon.Get(l.HelpKey));
-                _txDynamicsFields.Add((field, l, Array.Empty<(double, string)>()));
-                TxContent.Children.Add(field);
-            }
-        }
         AddLeverRows(NoiseController.CompressorLevers.Where(l => l.OnHome));
 
         // The reading is SAID when asked for, never a row of text that changes
@@ -518,6 +505,81 @@ public partial class ScreenFieldsPanel
         TxContent.Children.Add(_txDynamicsEdit);
     }
 
+    /// <summary>One flat row per lever, stepped and said through the controller: the compressor's, the limiter's and JJ Clarity's alike.</summary>
+    private void AddLeverRows(IEnumerable<DynamicsLever> levers)
+    {
+        foreach (var lever in levers)
+        {
+            var l = lever;
+            var field = MakeCycle(Lexicon.Get(l.LabelKey), Array.Empty<string>());
+            field.SelectionChanged += (s, i) =>
+            {
+                if (_polling || _txNoiseRebuilding || i < 0) return;
+                var entry = _txDynamicsFields.FirstOrDefault(f => ReferenceEquals(f.Field, field));
+                if (entry.Field == null || i >= entry.Steps.Count) return;
+                NoiseCtl?.SetDynamics(entry.Lever, entry.Steps[i].Value, TxNoiseSource);
+            };
+            JJFlexHelp.SetText(field, Lexicon.Get(l.HelpKey));
+            _txDynamicsFields.Add((field, l, Array.Empty<(double, string)>()));
+            TxContent.Children.Add(field);
+        }
+    }
+
+    /// <summary>
+    /// JJ Clarity's flat rows (Sprint 49 Track J, #736), before the
+    /// compressor's, as it runs before it: the whole switch, the door to the
+    /// suggest pass, a preset, each band's switch and how much of it is
+    /// added, a button that SAYS what it is adding now (never a row whose
+    /// words change under the operator), and the door to the editor that
+    /// holds every lever. Every row says "JJ Clarity" or names its band.
+    /// </summary>
+    private void BuildTransmitClarityRows()
+    {
+        _txClarityOn = MakeToggle(Lexicon.Get("audio.clarity_home.on"));
+        _txClarityOn.Checked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetClarityOn(true, TxNoiseSource); RefreshTransmitDynamicsValues(); } };
+        _txClarityOn.Unchecked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetClarityOn(false, TxNoiseSource); RefreshTransmitDynamicsValues(); } };
+        JJFlexHelp.SetText(_txClarityOn, Lexicon.Get("audio.clarity_help.on"));
+        TxContent.Children.Add(_txClarityOn);
+
+        _txClaritySuggest = MakeTxButton("audio.clarity_home.suggest", "audio.clarity_help.suggest");
+        _txClaritySuggest.Click += (s, e) => FindMainWindow()?.ShowClaritySuggest();
+        TxContent.Children.Add(_txClaritySuggest);
+
+        var presetNames = new[] { Lexicon.Get("audio.clarity.preset_none") }
+            .Concat(NoiseController.ClarityPresetList.Select(NoiseController.ClarityPresetName)).ToArray();
+        _txClarityPreset = MakeCycle(Lexicon.Get("audio.clarity_home.preset"), presetNames);
+        _txClarityPreset.SelectionChanged += (s, i) =>
+        {
+            if (_polling || _txNoiseRebuilding || i <= 0 || i > NoiseController.ClarityPresetList.Count) return;
+            NoiseCtl?.LoadClarityPreset(NoiseController.ClarityPresetList[i - 1].Id, TxNoiseSource);
+            RefreshTransmitDynamicsValues();
+        };
+        JJFlexHelp.SetText(_txClarityPreset, Lexicon.Get("audio.clarity_help.preset"));
+        TxContent.Children.Add(_txClarityPreset);
+
+        _txClarityHighOn = MakeToggle(Lexicon.Get("audio.clarity_home.high_on"));
+        _txClarityHighOn.Checked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetClarityBandOn(true, true, TxNoiseSource); RefreshTransmitDynamicsValues(); } };
+        _txClarityHighOn.Unchecked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetClarityBandOn(true, false, TxNoiseSource); RefreshTransmitDynamicsValues(); } };
+        JJFlexHelp.SetText(_txClarityHighOn, Lexicon.Get("audio.clarity_help.high_on"));
+        TxContent.Children.Add(_txClarityHighOn);
+        AddLeverRows(NoiseController.ClarityLevers.Where(l => l.OnHome && l.Key.StartsWith("high.", StringComparison.Ordinal)));
+
+        _txClarityLowOn = MakeToggle(Lexicon.Get("audio.clarity_home.low_on"));
+        _txClarityLowOn.Checked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetClarityBandOn(false, true, TxNoiseSource); RefreshTransmitDynamicsValues(); } };
+        _txClarityLowOn.Unchecked += (s, e) => { if (!_polling && !_txNoiseRebuilding) { NoiseCtl?.SetClarityBandOn(false, false, TxNoiseSource); RefreshTransmitDynamicsValues(); } };
+        JJFlexHelp.SetText(_txClarityLowOn, Lexicon.Get("audio.clarity_help.low_on"));
+        TxContent.Children.Add(_txClarityLowOn);
+        AddLeverRows(NoiseController.ClarityLevers.Where(l => l.OnHome && l.Key.StartsWith("low.", StringComparison.Ordinal)));
+
+        _txClarityNow = MakeTxButton("audio.clarity_menu.say_now", "audio.clarity_help.now");
+        _txClarityNow.Click += (s, e) => NoiseCtl?.SayClarityNow();
+        TxContent.Children.Add(_txClarityNow);
+
+        _txClarityEdit = MakeTxButton("audio.clarity_home.edit", "audio.clarity_help.edit");
+        _txClarityEdit.Click += (s, e) => FindMainWindow()?.ShowClarityEditor();
+        TxContent.Children.Add(_txClarityEdit);
+    }
+
     /// <summary>The compressor's and the limiter's rows' steps, set from the controller (Sprint 49 Track CL).</summary>
     private void SetupTransmitDynamicsFields(NoiseController noise)
     {
@@ -544,6 +606,17 @@ public partial class ScreenFieldsPanel
             _txCompressorOn.IsChecked = noise.CompressorOn;
             _txLimiterOn.IsChecked = noise.LimiterOn;
             _txHandoff.IsChecked = noise.ProcessorHandoffSetting;
+            // JJ Clarity's switches and its preset in place (Track J): values only, no sentence.
+            _txClarityOn.IsChecked = noise.ClarityOn;
+            _txClarityHighOn.IsChecked = noise.ClarityBandOn(true);
+            _txClarityLowOn.IsChecked = noise.ClarityBandOn(false);
+            var clarityInPlace = noise.ClarityPresetInPlace;
+            int clarityIndex = 0;
+            for (int i = 0; i < NoiseController.ClarityPresetList.Count; i++)
+                if (ReferenceEquals(NoiseController.ClarityPresetList[i], clarityInPlace)) clarityIndex = i + 1;
+            _txClarityPreset.SuppressEvents = true;
+            try { _txClarityPreset.SelectedIndex = clarityIndex; }
+            finally { _txClarityPreset.SuppressEvents = false; }
             var inPlace = noise.CompressorPresetInPlace;
             int presetIndex = 0;
             for (int i = 0; i < NoiseController.CompressorPresets.Count; i++)

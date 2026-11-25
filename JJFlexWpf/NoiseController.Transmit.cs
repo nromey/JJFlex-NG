@@ -144,6 +144,21 @@ namespace JJFlexWpf
         /// unkeyed buffer. Only inside one change the controller holds.
         /// </summary>
         void StageDynamics(TxCompressorSetup compressor, TxLimiterSetup limiter) { }
+
+        /// <summary>
+        /// JJ Clarity as a setup carries it (Sprint 49 Track J, #736). A gate
+        /// that has none (a test's fake) answers with it off.
+        /// </summary>
+        TxClaritySetup CaptureClarity() => new TxClaritySetup();
+
+        /// <summary>
+        /// Hold a setup's JJ Clarity as an intent, for the
+        /// <see cref="ApplyStagesNow"/> the controller makes next: its one
+        /// staged record carries it, as it carries the compressor and the
+        /// limiter (<see cref="StageDynamics"/>). Only inside one change the
+        /// controller holds.
+        /// </summary>
+        void StageClarity(TxClaritySetup clarity) { }
     }
 
     /// <summary>The app's gate: <see cref="TxAudioConditioning"/>, the session's one transmit chain.</summary>
@@ -197,6 +212,8 @@ namespace JJFlexWpf
             TxAudioConditioning.ApplyStagesNow(eq, deEsser, order, gate);
         public (TxCompressorSetup Compressor, TxLimiterSetup Limiter) CaptureDynamics() => TxAudioConditioning.CaptureDynamics();
         public void StageDynamics(TxCompressorSetup compressor, TxLimiterSetup limiter) => TxAudioConditioning.StageDynamics(compressor, limiter);
+        public TxClaritySetup CaptureClarity() => TxAudioConditioning.CaptureClarity();
+        public void StageClarity(TxClaritySetup clarity) => TxAudioConditioning.StageClarity(clarity);
     }
 
     /// <summary>One of the gate's levers: what it is, its range, its step and its unit.</summary>
@@ -925,9 +942,35 @@ namespace JJFlexWpf
                 }
             var gate = TransmitGate;
             if (gate.Enabled)
+            {
                 items.Add(gate.AutoThreshold
                     ? L("audio.noise_surface.tx.active.gate_auto", ("margin", GateValueText(GateLever(TxGateLever.Margin)!)))
                     : L("audio.noise_surface.tx.active.gate_fixed", ("threshold", GateValueText(GateLever(TxGateLever.Threshold)!))));
+                // #1313: the expander's strength was left out of the one
+                // sentence that says what is on.
+                items.Add(L("audio.noise_surface.tx.active.expander_strength", ("strength", GateValueText(GateLever(TxGateLever.Strength)!))));
+            }
+            // #1313, and Sprint 49 Track J item 11: every stage that shapes
+            // what is sent is named too, in the order they run: the equaliser,
+            // the de-esser, JJ Clarity, the compressor, the limiter. As
+            // intended (what the operator switched on), like the gate above.
+            var (eqNow, deEsserNow, _) = gate.CaptureStages();
+            if (eqNow.Enabled) items.Add(L("audio.noise_surface.tx.active.eq", ("bands", (eqNow.Bands?.Count ?? 0).ToString(CultureInfo.InvariantCulture))));
+            if (deEsserNow.Enabled) items.Add(L("audio.noise_surface.tx.active.deesser"));
+            var clarityNow = gate.CaptureClarity();
+            if (clarityNow.Enabled)
+            {
+                var bands = clarityNow.ToSettings();
+                items.Add(bands.AddsNothing ? L("audio.noise_surface.tx.active.clarity_idle")
+                    : !bands.Low.AddsNothing && !bands.High.AddsNothing ? L("audio.noise_surface.tx.active.clarity_both")
+                    : !bands.High.AddsNothing ? L("audio.noise_surface.tx.active.clarity_high")
+                    : L("audio.noise_surface.tx.active.clarity_low"));
+            }
+            var (compressorNow, limiterNow) = gate.CaptureDynamics();
+            if (compressorNow.Enabled)
+                items.Add(L(TxCompressorModes.IsSplit(compressorNow.CompressorMode) ? "audio.noise_surface.tx.active.compressor_split" : "audio.noise_surface.tx.active.compressor"));
+            if (limiterNow.Enabled)
+                items.Add(L("audio.noise_surface.tx.active.limiter", ("ceiling", limiterNow.CeilingDb.ToString("0.#", CultureInfo.InvariantCulture))));
             // All off now, with a whole change still held: say both (repair round 2, item 5).
             if (items.Count == 0)
                 return chain != null && chain.HasDeferredChanges
@@ -1454,11 +1497,15 @@ namespace JJFlexWpf
             // carries them; a setup or preset without them puts them off.
             var compCopy = stages?.Compressor?.Clone();
             var limiterCopy = stages?.Limiter?.Clone();
+            // Sprint 49 Track J: and JJ Clarity, the same way; a setup or preset
+            // saved before it existed carries it off, so applying one switches it off.
+            var clarityCopy = stages?.Clarity?.Clone();
             void ApplyGateAndStages(TxNoiseGateSetup? g)
             {
                 if (stages != null)
                 {
                     TransmitGate.StageDynamics(compCopy ?? new TxCompressorSetup(), limiterCopy ?? new TxLimiterSetup());
+                    TransmitGate.StageClarity(clarityCopy ?? new TxClaritySetup());
                     TransmitGate.ApplyStagesNow(eqCopy ?? new ParametricEqSetup(), deCopy ?? new TxDeEsserSetup(),
                         orderCopy ?? JJPortaudio.TxAudioConditioner.StageIds.DefaultOrder, g);
                 }
@@ -1476,7 +1523,8 @@ namespace JJFlexWpf
             // With anything waiting it is queued as before, because it may be
             // overriding a different intent that would otherwise land.
             if (!chain.HasDeferredChanges && _txSettling.Count == 0 && WholeAlreadyInPlace(chain, slots, spectral, neural, gate)
-                && (stages == null || (SameStages(TransmitGate.CaptureStages(), stages) && SameDynamics(TransmitGate.CaptureDynamics(), stages))))
+                && (stages == null || (SameStages(TransmitGate.CaptureStages(), stages) && SameDynamics(TransmitGate.CaptureDynamics(), stages)
+                    && SameClarity(TransmitGate.CaptureClarity(), stages.Clarity ?? new TxClaritySetup()))))
                 return TxChangeResult.Now;
             if (slots) { CancelTransmitSettle(DenoiseFamily.Spectral); CancelTransmitSettle(DenoiseFamily.Neural); }
             var spectralCopy = spectral?.Clone();
@@ -1509,6 +1557,14 @@ namespace JJFlexWpf
         internal static bool SameLimiter(TxLimiterSetup a, TxLimiterSetup b) =>
             new TxNoiseSetup { Limiter = a }.SameContentAs(new TxNoiseSetup { Limiter = b });
 
+        /// <summary>Whether two JJ Clarity settings act the same (Sprint 49 Track J). The preset's id is a note, not a setting.</summary>
+        internal static bool SameClarity(TxClaritySetup a, TxClaritySetup b)
+        {
+            var x = a.Clone(); var y = b.Clone();
+            x.PresetId = y.PresetId = "";
+            return new TxNoiseSetup { Clarity = x }.SameContentAs(new TxNoiseSetup { Clarity = y });
+        }
+
         /// <summary>Whether a whole request would leave both slots (when it names them) and the gate (when it names one) exactly as they are.</summary>
         private bool WholeAlreadyInPlace(TxNoiseChain chain, bool slots, TxNoiseSlotSetup? spectral, TxNoiseSlotSetup? neural, TxNoiseGateSetup? gate)
         {
@@ -1528,6 +1584,7 @@ namespace JJFlexWpf
             if (_txChain() is { } chain) (setup.Spectral, setup.Neural) = chain.CaptureSlots();
             (setup.Eq, setup.DeEsser, setup.StageOrder) = TransmitGate.CaptureStages();
             (setup.Compressor, setup.Limiter) = TransmitGate.CaptureDynamics();
+            setup.Clarity = TransmitGate.CaptureClarity();
             return setup;
         }
 

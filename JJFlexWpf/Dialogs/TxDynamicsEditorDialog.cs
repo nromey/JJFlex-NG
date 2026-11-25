@@ -19,6 +19,12 @@ namespace JJFlexWpf
     /// word is a DRAFT PROSE key for Codex. Its logic is the windowless
     /// <see cref="TxDynamicsEditorModel"/> and the noise controller's own
     /// rule book; the window itself is the harness walk's to press.
+    /// <para><b>JJ Clarity's editor is this same window</b> (Sprint 49 Track J,
+    /// #736), opened showing JJ Clarity's sections instead
+    /// (<see cref="TxShapingEditorSections.Clarity"/>): one window class, one
+    /// model, and ONE put-back, hung on the window closing, so every way out
+    /// but Close takes back what the editor changed, whichever sections it
+    /// shows. Which sections are shown is all that differs.</para>
     /// </summary>
     public sealed class TxDynamicsEditorDialog : JJFlexDialog
     {
@@ -27,6 +33,9 @@ namespace JJFlexWpf
         private readonly string _source;
         private readonly StackPanel _sections = new();
         private readonly CheckBox _compressorOn = new(), _limiterOn = new(), _handoff = new();
+        private readonly CheckBox _clarityOn = new(), _clarityHighOn = new(), _clarityLowOn = new();
+        private readonly ComboBox _clarityPreset = new(), _clarityHighHarmonics = new(), _clarityLowHarmonics = new();
+        private readonly TxShapingEditorSections _show;
         private readonly ComboBox _preset = new(), _mode = new();
         private readonly List<(ValueFieldControl Field, DynamicsLever Lever)> _fields = new();
         private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Focusable = true };
@@ -50,12 +59,17 @@ namespace JJFlexWpf
         public TxDynamicsEditorDialog() : this(TxDynamicsEditorModel.Detached(), null, "detached") { }
 
         public TxDynamicsEditorDialog(TxDynamicsEditorModel model, NoiseController? noise, string source)
+            : this(model, noise, source, TxShapingEditorSections.Dynamics) { }
+
+        /// <param name="show">Which stages' sections this window shows: the compressor and the limiter, or JJ Clarity.</param>
+        public TxDynamicsEditorDialog(TxDynamicsEditorModel model, NoiseController? noise, string source, TxShapingEditorSections show)
         {
             _model = model ?? throw new ArgumentNullException(nameof(model));
             _noise = noise;
             _source = source ?? "";
-            Title = Lexicon.Get("audio.dynamics.editor.title");
-            Width = 660; Height = 680;
+            _show = show;
+            Title = Lexicon.Get(show == TxShapingEditorSections.Clarity ? "audio.clarity.editor.title" : "audio.dynamics.editor.title");
+            Width = 660; Height = show == TxShapingEditorSections.Clarity ? 560 : 680;
             ResizeMode = ResizeMode.CanResize;
 
             var root = new DockPanel { Margin = new Thickness(12) };
@@ -73,6 +87,70 @@ namespace JJFlexWpf
             Closing += (_, _) => Dismissed(_model, _kept);
             root.Children.Add(buttons);
 
+            if (show == TxShapingEditorSections.Clarity) BuildClaritySections();
+            else BuildDynamicsSections();
+
+            AutomationProperties.SetName(_status, Lexicon.Get("audio.dynamics.editor.status"));
+            var statusGroup = Section("audio.dynamics.editor.section_status");
+            statusGroup.Children.Add(_status);
+
+            root.Children.Add(new ScrollViewer { Content = _sections, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+            Content = root;
+            PreviewKeyDown += OnPreviewKeyDown;
+            Refresh();
+        }
+
+        /// <summary>
+        /// JJ Clarity's sections (Sprint 49 Track J): the whole switch, a
+        /// preset and the reading; then the high band, which adds brightness,
+        /// and the low band, which adds fullness, each with its own switch,
+        /// its harmonics and its three levers. Every label says "JJ Clarity"
+        /// or names the band, never "clarity" alone (the radio has an
+        /// Enhanced Signal Clarity of its own).
+        /// </summary>
+        private void BuildClaritySections()
+        {
+            var clarity = Section("audio.clarity.editor.section_clarity");
+            Toggle(_clarityOn, "audio.clarity.editor.on", "audio.clarity_help.on", on => _noise?.SetClarityOn(on, _source), clarity);
+            foreach (var p in NoiseController.ClarityPresetList) _clarityPreset.Items.Add(NoiseController.ClarityPresetName(p));
+            clarity.Children.Add(Labelled("audio.clarity.editor.preset", "audio.clarity_help.preset", _clarityPreset));
+            clarity.Children.Add(Button("audio.clarity.editor.load_preset", () =>
+            {
+                int i = _clarityPreset.SelectedIndex;
+                if (i < 0 || i >= NoiseController.ClarityPresetList.Count) return;
+                _noise?.LoadClarityPreset(NoiseController.ClarityPresetList[i].Id, _source);
+                Refresh();
+            }));
+            clarity.Children.Add(Button("audio.clarity.editor.say_now", () => { _noise?.SayClarityNow(); Status(_noise?.ClarityNowSentence()); }));
+
+            foreach (var (high, headerKey, box, harmonics, onKey, onHelp, harmonicsKey, harmonicsHelp) in new[]
+                     {
+                         (true, "audio.clarity.editor.section_high", _clarityHighOn, _clarityHighHarmonics,
+                             "audio.clarity.editor.high_on", "audio.clarity_help.high_on", "audio.clarity.editor.high_harmonics", "audio.clarity_help.high_harmonics"),
+                         (false, "audio.clarity.editor.section_low", _clarityLowOn, _clarityLowHarmonics,
+                             "audio.clarity.editor.low_on", "audio.clarity_help.low_on", "audio.clarity.editor.low_harmonics", "audio.clarity_help.low_harmonics"),
+                     })
+            {
+                bool band = high;
+                var combo = harmonics;
+                var section = Section(headerKey);
+                Toggle(box, onKey, onHelp, on => _noise?.SetClarityBandOn(band, on, _source), section);
+                foreach (var word in TxClarityHarmonics.All) combo.Items.Add(NoiseController.ClarityHarmonicsName(word));
+                combo.SelectionChanged += (_, _) =>
+                {
+                    if (_filling || combo.SelectedIndex < 0 || combo.SelectedIndex >= TxClarityHarmonics.All.Count) return;
+                    _noise?.SetClarityHarmonics(band, TxClarityHarmonics.All[combo.SelectedIndex], _source);
+                    Refresh();
+                };
+                section.Children.Add(Labelled(harmonicsKey, harmonicsHelp, combo));
+                string prefix = high ? "high." : "low.";
+                foreach (var lever in NoiseController.ClarityLevers.Where(l => l.Key.StartsWith(prefix, StringComparison.Ordinal)))
+                    section.Children.Add(Field(lever));
+            }
+        }
+
+        private void BuildDynamicsSections()
+        {
             // ── The compressor ──
             var compressor = Section("audio.dynamics.editor.section_compressor");
             Toggle(_compressorOn, "audio.dynamics.editor.compressor_on", "audio.dynamics_help.compressor_on",
@@ -117,15 +195,6 @@ namespace JJFlexWpf
                 on => _noise?.SetLimiterOn(on, _source), limiter);
             foreach (var lever in NoiseController.LimiterLevers) limiter.Children.Add(Field(lever));
             limiter.Children.Add(Button("audio.dynamics.editor.say_limiter", () => { _noise?.SayLimiterNow(); Status(_noise?.LimiterNowSentence()); }));
-
-            AutomationProperties.SetName(_status, Lexicon.Get("audio.dynamics.editor.status"));
-            var statusGroup = Section("audio.dynamics.editor.section_status");
-            statusGroup.Children.Add(_status);
-
-            root.Children.Add(new ScrollViewer { Content = _sections, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
-            Content = root;
-            PreviewKeyDown += OnPreviewKeyDown;
-            Refresh();
         }
 
         // F6 and Shift+F6 between the sections (the Windows convention; a
@@ -184,6 +253,21 @@ namespace JJFlexWpf
             try
             {
                 var (c, l) = _model.Setting;
+                if (_show == TxShapingEditorSections.Clarity)
+                {
+                    var clarity = _model.ClaritySetting;
+                    _clarityOn.IsChecked = clarity.Enabled;
+                    _clarityHighOn.IsChecked = clarity.Band(true).Enabled;
+                    _clarityLowOn.IsChecked = clarity.Band(false).Enabled;
+                    _clarityHighHarmonics.SelectedIndex = (int)TxClarityHarmonics.ToChoice(clarity.Band(true).Harmonics);
+                    _clarityLowHarmonics.SelectedIndex = (int)TxClarityHarmonics.ToChoice(clarity.Band(false).Harmonics);
+                    int inPlace = -1;
+                    for (int i = 0; i < NoiseController.ClarityPresetList.Count; i++)
+                        if (string.Equals(NoiseController.ClarityPresetList[i].Id, clarity.PresetId, StringComparison.Ordinal)) inPlace = i;
+                    _clarityPreset.SelectedIndex = inPlace;
+                    foreach (var (field, lever) in _fields) field.Value = TxDynamicsEditorModel.ToField(lever, TxDynamicsEditorModel.ValueOf(lever, clarity));
+                    return;
+                }
                 _compressorOn.IsChecked = c.Enabled;
                 _limiterOn.IsChecked = l.Enabled;
                 _handoff.IsChecked = _noise?.ProcessorHandoffSetting ?? AudioOutputConfig.RadioProcessorOffWithCompressorInForce;
@@ -216,5 +300,14 @@ namespace JJFlexWpf
             b.Click += (_, _) => click();
             return b;
         }
+    }
+
+    /// <summary>Which stages' sections the transmit shaping editor shows (Sprint 49 Track J).</summary>
+    public enum TxShapingEditorSections
+    {
+        /// <summary>The compressor stage and the limiter (Track CL's editor, as it was).</summary>
+        Dynamics = 0,
+        /// <summary>JJ Clarity: the whole switch, its presets, and its two bands.</summary>
+        Clarity = 1,
     }
 }
