@@ -153,6 +153,91 @@ public sealed class PowerOnPttControllerTests : IDisposable
         Assert.Contains("_hardKillTimer", RunningTimers(_old));
     }
 
+    // ── Repair round 1: each idle condition pinned on its own ──
+    //
+    // In each case the key's state is Idle, so only the one condition under
+    // test makes the controller not idle. Removing that condition from
+    // PttControllerIsIdle makes the power-on dispose and rebuild, and the
+    // test goes red. Both checkers found none of the three pinned before.
+
+    private static readonly TransmitPowerReading TheCut =
+        new TransmitPowerReading(17.8f, 10.3f, skewMilliseconds: 4f, ageMilliseconds: 20f, commandedWatts: 25);
+
+    private void AssertKeptWithoutASecond(PttSafetyController now)
+    {
+        Assert.Same(_old, now);
+        Assert.Equal(0, _builds);
+        Assert.False(Disposed(_old));
+        Assert.Equal(PttSafetyController.PttState.Idle, _old.State);
+    }
+
+    [Fact]
+    public void A_release_still_waiting_for_the_radios_receive_is_kept()
+    {
+        AssertTheDeskIsSafe();
+        _old.RadioReportsTransmit = _ => true;   // the radio still reports transmit after the release
+        _old.ReleaseClockMs = () => 0;
+        _old.ToggleLock();
+        _old.ToggleLock();
+        Assert.Equal(PttSafetyController.PttState.Idle, _old.State);
+        Assert.True(_old.AwaitingRadioReceive, "positive control: the release waits for the radio");
+        Assert.False(_old.CutHold.Holding);
+        Assert.False(_old.ExternalTransmitWatch);
+        Assert.False(MainWindow.PttControllerIsIdle(_old));
+
+        var now = PowerOn();
+
+        AssertKeptWithoutASecond(now);
+        Assert.True(_old.AwaitingRadioReceive, "the wait for the radio's receive was retired");
+    }
+
+    [Fact]
+    public void A_reflected_power_cut_hold_is_kept()
+    {
+        AssertTheDeskIsSafe();
+        _old.BeginCutHold(_rig, TransmitSafety.ReflectedCut.Share, TheCut, "ANT2");
+        Assert.Equal(PttSafetyController.PttState.Idle, _old.State);
+        Assert.True(_old.CutHold.Holding, "positive control: the cut hold is in force");
+        Assert.False(_old.AwaitingRadioReceive);
+        Assert.False(_old.ExternalTransmitWatch);
+        Assert.False(MainWindow.PttControllerIsIdle(_old));
+
+        var now = PowerOn();
+
+        AssertKeptWithoutASecond(now);
+        Assert.True(_old.CutHold.Holding, "the cut hold was abandoned");
+    }
+
+    [Fact]
+    public void An_external_transmit_being_watched_is_kept()
+    {
+        AssertTheDeskIsSafe();
+        _old.BeginExternalTransmitWatch();
+        Assert.Equal(PttSafetyController.PttState.Idle, _old.State);
+        Assert.True(_old.ExternalTransmitWatch, "positive control: the external transmit is watched");
+        Assert.False(_old.AwaitingRadioReceive);
+        Assert.False(_old.CutHold.Holding);
+        Assert.False(MainWindow.PttControllerIsIdle(_old));
+
+        var now = PowerOn();
+
+        AssertKeptWithoutASecond(now);
+        Assert.True(_old.ExternalTransmitWatch, "the external watch was dropped");
+        Assert.Contains("_alcTimer", RunningTimers(_old));   // its health watch still runs
+    }
+
+    [Fact]
+    public void A_power_off_forgets_the_rig_its_controller_was_built_for()
+    {
+        AssertTheDeskIsSafe();
+        // SOURCE PIN (PowerNowOffInternal needs the window's controls): the
+        // field is cleared beside the controller, so a torn-down rig is not
+        // held until the next power-on.
+        string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            RepoRoot(), "JJFlexWpf", "MainWindow.xaml.cs")).Replace("\r\n", "\n");
+        Assert.Contains("_pttController = null;\n        _pttControllerRig = null;", src);
+    }
+
     [Fact]
     public void A_held_key_on_a_different_rig_is_left_to_the_reconnect_path_as_before()
     {

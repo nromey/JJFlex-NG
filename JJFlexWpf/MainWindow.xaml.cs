@@ -6146,6 +6146,15 @@ public partial class MainWindow : UserControl
         && !c.CutHold.Holding
         && !c.ExternalTransmitWatch;
 
+    /// <summary>Why <see cref="PttControllerIsIdle"/> said no, for the trace:
+    /// the key's state alone reads "Idle" when a release watch, a cut hold or
+    /// an external watch is what keeps it (#901 repair 1).</summary>
+    private static string PttNotIdleDetail(PttSafetyController c) =>
+        "state " + c.State
+        + ", awaiting the radio's receive " + c.AwaitingRadioReceive
+        + ", reflected-power cut hold " + c.CutHold.Holding
+        + ", external transmit watch " + c.ExternalTransmitWatch;
+
     /// <summary>The rule for <see cref="PowerOnPttStep"/>. Pure.</summary>
     internal static PowerOnPttStep DecidePowerOnPtt(bool haveLive, bool liveIdle, bool sameRig) =>
         !haveLive ? PowerOnPttStep.Build
@@ -6169,12 +6178,12 @@ public partial class MainWindow : UserControl
         switch (step)
         {
             case PowerOnPttStep.KeepLive:
-                Tracing.TraceLine("MainWindow PowerNowOn: a power-on arrived with the key in use (state "
-                    + live!.State + "); the live push-to-talk controller was kept and no second one built", TraceLevel.Info);
+                Tracing.TraceLine("MainWindow PowerNowOn: a power-on arrived with the push-to-talk controller not idle ("
+                    + PttNotIdleDetail(live!) + "); it was kept and no second one built", TraceLevel.Info);
                 return live;
             case PowerOnPttStep.LeaveForReconnectPath:
-                Tracing.TraceLine("MainWindow PowerNowOn: a power-on arrived with the key in use (state "
-                    + live!.State + ") on a different rig; a new controller is built and the old one left as before", TraceLevel.Warning);
+                Tracing.TraceLine("MainWindow PowerNowOn: a power-on arrived with the push-to-talk controller not idle ("
+                    + PttNotIdleDetail(live!) + ") on a different rig; a new controller is built and the old one left as before", TraceLevel.Warning);
                 break;
             case PowerOnPttStep.DisposeThenBuild:
                 Tracing.TraceLine("MainWindow PowerNowOn: an idle push-to-talk controller was already live; disposed before building its replacement", TraceLevel.Info);
@@ -6792,6 +6801,7 @@ public partial class MainWindow : UserControl
         // Dispose PTT safety controller (Sprint 15) — stops TX if active
         _pttController?.Dispose();
         _pttController = null;
+        _pttControllerRig = null;   // #901 repair 1: no strong reference to a rig torn down
 
         // A deferred PTT release (#216) has nothing left to release; the hold
         // filter keeps its learned state — that describes the screen reader,
