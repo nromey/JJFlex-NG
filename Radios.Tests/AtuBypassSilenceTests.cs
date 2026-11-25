@@ -87,10 +87,10 @@ public sealed class AtuBypassSilenceTests : IDisposable
         // SOURCE PINS: every route to SetAtuAutomatic says what it did.
         string menu = Source("JJFlexWpf", "NativeMenuBar.cs");
         Assert.Contains("\"settings.atu.mode_bypassed\"", menu);
-        Assert.Contains("Radios.Lexicon.Get(\"settings.atu.turned_off\")", menu);
+        Assert.Contains("Radios.Lexicon" + ".Get(\"settings.atu.turned_off\")", menu);
         string panel = Source("JJFlexWpf", "Controls", "ScreenFieldsPanel.xaml.cs");
-        Assert.Contains("if (SetAtu(true) == null) ToggleFeedback.Announce(Lexicon.Get(\"audio.fields.atu\"), true);", panel);
-        Assert.Contains("if (SetAtu(false) == null) ToggleFeedback.Announce(Lexicon.Get(\"audio.fields.atu\"), false);", panel);
+        Assert.Contains("if (SetAtu(true) == null) ToggleFeedback.Announce(Lexicon" + ".Get(\"audio.fields.atu\"), true);", panel);
+        Assert.Contains("if (SetAtu(false) == null) ToggleFeedback.Announce(Lexicon" + ".Get(\"audio.fields.atu\"), false);", panel);
     }
 
     [Fact]
@@ -103,7 +103,7 @@ public sealed class AtuBypassSilenceTests : IDisposable
         Assert.True(ask > read, "and asks the rule after");
         int end = src.IndexOf("EndAtuCycle(AtuCycleEnd.Result);", read, StringComparison.Ordinal);
         Assert.True(end > read && end < ask, "the read comes before EndAtuCycle stops the cycle's timer");
-        Assert.DoesNotContain("if (isAutoATU)\n                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get(\"audio.tune.atu_bypassed\")", src);
+        Assert.DoesNotContain("if (isAutoATU)\n                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon" + ".Get(\"audio.tune.atu_bypassed\")", src);
     }
 
     private static string Source(params string[] parts) =>
