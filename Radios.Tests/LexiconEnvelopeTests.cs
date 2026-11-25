@@ -2120,6 +2120,23 @@ namespace Radios.Tests
                 "settings.profile.report_saved_loaded",
                 "settings.restore_export.saved_loaded",
                 "settings.restore_export.saved_nothing_moved",
+                // Junk box batch 29 (#1292): the finished sentences when a kind
+                // the walk moved was not put back name the kind and the profile
+                // (Noel 2026-11-24, "select your Default transmit profile").
+                // Same classification and reasoning as above: spoken only as
+                // the delayed answer to the operator's own press. DRAFT, for
+                // Codex; the kind_ entries are fragments never spoken alone.
+                "settings.restore_export.saved_not_put_back",
+                "settings.profile.report_saved_not_put_back",
+                "settings.restore_export.not_put_back.select",
+                "settings.restore_export.not_put_back.global_none",
+                "settings.restore_export.not_put_back.global_none_unknown",
+                "settings.restore_export.not_put_back.none_now_on",
+                "settings.restore_export.not_put_back.unknown_now_on",
+                "settings.restore_export.not_put_back.unknown",
+                "settings.restore_export.not_put_back.kind_global",
+                "settings.restore_export.not_put_back.kind_tx",
+                "settings.restore_export.not_put_back.kind_mic",
 
                 // Same track, follow-up (Noel 07:55, 08:09): the answers to the
                 // Radio menu's Switch Mic Input Back to PC, and the action

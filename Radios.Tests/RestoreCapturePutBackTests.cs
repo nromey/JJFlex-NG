@@ -499,6 +499,144 @@ namespace Radios.Tests
             Assert.Equal(1, Count(src, "putBackRecordedEarlier: null"));
         }
 
+        // ------------------------------------------------------------------
+        // The spoken "not put back" sentence (Noel 2026-11-24: be specific,
+        // name the type and the profile, "select your Default transmit
+        // profile"). The words are DRAFT; these pin the facts they carry.
+        // ------------------------------------------------------------------
+
+        private const string Path = @"C:\captures\restore.txt";
+
+        private static ProfileReporter.RestoreGradeExport ExportFrom(List<ProfileReporter.ProfileWalkOutcome> outcomes)
+            => new ProfileReporter.RestoreGradeExport
+            {
+                WalkRan = true,
+                AnyLoadRequested = true,
+                NotPutBack = ProfileReporter.KindsNotPutBack(outcomes),
+                NotPutBackItems = ProfileReporter.NotPutBackItems(outcomes),
+            };
+
+        private static ProfileReporter.ComparisonReport ReportFrom(List<ProfileReporter.ProfileWalkOutcome> outcomes)
+            => new ProfileReporter.ComparisonReport
+            {
+                AnyLoadRequested = true,
+                NotPutBack = ProfileReporter.KindsNotPutBack(outcomes),
+                NotPutBackItems = ProfileReporter.NotPutBackItems(outcomes),
+            };
+
+        [Fact]
+        public void The_items_carry_the_same_kinds_as_the_kind_list_with_their_names()
+        {
+            var s = TheBench(globalBefore: "");
+            s.Unreported.Add(ProfileTypes.tx);
+            var outcomes = s.Capture();
+
+            var items = ProfileReporter.NotPutBackItems(outcomes);
+            Assert.Equal(ProfileReporter.KindsNotPutBack(outcomes), items.Select(i => i.Kind));
+            Assert.Equal("", items[0].Before);
+            Assert.Equal("SO2RDefault", items[0].NowOn);
+            Assert.Equal("Default", items[1].Before);
+        }
+
+        [Fact]
+        public void A_transmit_profile_not_put_back_is_named_with_its_kind_and_where_to_select_it()
+        {
+            var s = TheBench(globalBefore: "JJRadioDefault");
+            s.Unreported.Add(ProfileTypes.tx);
+            var outcomes = s.Capture();
+
+            string said = ProfileReporter.RestoreFinishedSentence(ExportFrom(outcomes), Path);
+            Assert.Contains(Path, said);
+            Assert.Contains("select your Default transmit profile", said);
+            Assert.Contains("Profiles, in the Radio menu", said);
+            Assert.DoesNotContain("global", said);
+        }
+
+        [Fact]
+        public void A_microphone_profile_not_put_back_is_named_with_its_kind()
+        {
+            var s = TheBench(globalBefore: "JJRadioDefault");
+            s.Stored.Remove(ProfileTypes.mic);
+            var outcomes = s.Capture();
+
+            string said = ProfileReporter.RestoreFinishedSentence(ExportFrom(outcomes), Path);
+            Assert.Contains("select your Default microphone profile", said);
+            Assert.DoesNotContain("transmit profile", said);
+        }
+
+        [Fact]
+        public void A_global_that_was_none_before_says_which_global_the_radio_is_on_and_that_it_cannot_be_cleared()
+        {
+            var s = TheBench(globalBefore: "");
+            var outcomes = s.Capture();
+
+            string said = ProfileReporter.RestoreFinishedSentence(ExportFrom(outcomes), Path);
+            Assert.Contains("SO2RDefault global profile", said);
+            Assert.Contains("cannot be cleared", said);
+            // TX and mic were put back, so they are not named as not put back.
+            Assert.DoesNotContain("transmit", said);
+            Assert.DoesNotContain("microphone", said);
+        }
+
+        [Fact]
+        public void A_selection_nobody_recorded_names_where_the_radio_is_now_without_a_profile_to_select()
+        {
+            var s = TheBench();
+            s.Global = null;
+            var outcomes = s.Capture();
+
+            string said = ProfileReporter.RestoreFinishedSentence(ExportFrom(outcomes), Path);
+            Assert.Contains("could not be read", said);
+            Assert.Contains("SO2RDefault global profile", said);
+            Assert.DoesNotContain("select your", said);
+        }
+
+        [Fact]
+        public void An_empty_TX_selection_names_the_profile_it_is_now_on_and_claims_no_clearing()
+        {
+            var s = TheBench(globalBefore: "JJRadioDefault");
+            s.Tx = "";
+            var outcomes = s.Capture();
+
+            string said = ProfileReporter.RestoreFinishedSentence(ExportFrom(outcomes), Path);
+            Assert.Contains("SO2R_TX2 transmit profile", said);
+            Assert.DoesNotContain("cleared", said);
+        }
+
+        [Fact]
+        public void With_nothing_left_unput_back_both_finished_sentences_are_unchanged()
+        {
+            var s = TheBench(globalBefore: "JJRadioDefault");
+            var outcomes = s.Capture();
+            Assert.Empty(ProfileReporter.KindsNotPutBack(outcomes));
+
+            Assert.Equal(Radios.Lexicon.Get("settings.restore_export.saved_loaded", ("path", Path)),
+                ProfileReporter.RestoreFinishedSentence(ExportFrom(outcomes), Path));
+            Assert.Equal(Radios.Lexicon.Get("settings.profile.report_saved_loaded", ("path", Path)),
+                ProfileReporter.ComparisonFinishedSentence(ReportFrom(outcomes), Path));
+        }
+
+        [Fact]
+        public void The_comparison_names_a_global_that_was_none_before_the_same_way()
+        {
+            var s = TheBench(globalBefore: "");
+            var outcomes = s.Compare(ProfileTypes.global, ProfileTypes.tx);
+
+            string said = ProfileReporter.ComparisonFinishedSentence(ReportFrom(outcomes), Path);
+            Assert.StartsWith("Profile report saved to " + Path, said);
+            Assert.Contains("SO2RDefault global profile", said);
+            Assert.Contains("cannot be cleared", said);
+        }
+
+        [Fact]
+        public void The_finished_sentences_read_the_items_the_two_walkers_fill()
+        {
+            // SOURCE PIN: both walkers fill the named list beside the kinds.
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                FlexBasePartials.RepoRoot(), "Radios", "ProfileReporter.cs"));
+            Assert.Equal(2, Count(src, "result.NotPutBackItems = NotPutBackItems(outcomes);"));
+        }
+
         private static int Count(string s, string token)
         {
             int n = 0, i = 0;

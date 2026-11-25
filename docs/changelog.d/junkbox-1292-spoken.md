@@ -1,0 +1,2 @@
+<!-- DRAFT: for Codex to word. Not approved copy. -->
+- When the full restore capture or the profile comparison report finishes and could not put a profile back, it now tells you which kind of profile and which one to select from Profiles, in the Radio menu, for example your Default transmit profile. If no global profile was selected before, it says which global profile the radio is now on and that it cannot be cleared.
