@@ -695,26 +695,36 @@ public partial class MainWindow : UserControl
         // operator is. Until 2026-09-02 the arrival spoke here, 250 ms after
         // the shell was shown, which put it in the MIDDLE of the connect
         // narration with profile talk on both sides of it.
-        var briefing = Radios.ConnectBriefing.Current;
-        void Arrive()
-        {
-            briefing.RequestHomeArrival(message, Radios.VerbosityLevel.Terse);
-            if (runningNotice != null)
-            {
-                // Critical because the operator did not ask and cannot see it.
-                // Brief at connect because "Recording is on." is the part that
-                // changes what they do next; the rest is reference.
-                briefing.Note(new Radios.ConnectFact(
-                    Radios.ConnectFactKind.RunningInstrumentation,
-                    runningNotice,
-                    Radios.Lexicon.Get("logging.running.startup_brief"),
-                    Radios.VerbosityLevel.Critical,
-                    Radios.Speech.SpeechSubject.RunningInstrumentation));
-            }
-        }
+        bool Arrive() => RequestWelcomeArrival(message, runningNotice);
         // #1306: behind the reminder when it has the floor, replayed when it closes.
         if (reminderFirst) _pendingArrival = Arrive;
         else Arrive();
+    }
+
+    /// <summary>
+    /// Home's arrival at the welcome, and the running-instrumentation notice
+    /// behind it. True only when the where-you-are sentence was admitted for
+    /// speech now (<see cref="Radios.ConnectBriefing.RequestHomeArrival"/>):
+    /// not when it is held for a connect settle, and not when the operator's
+    /// verbosity setting keeps it back.
+    /// </summary>
+    private static bool RequestWelcomeArrival(string message, string? runningNotice)
+    {
+        var briefing = Radios.ConnectBriefing.Current;
+        bool admitted = briefing.RequestHomeArrival(message, Radios.VerbosityLevel.Terse);
+        if (runningNotice != null)
+        {
+            // Critical because the operator did not ask and cannot see it.
+            // Brief at connect because "Recording is on." is the part that
+            // changes what they do next; the rest is reference.
+            briefing.Note(new Radios.ConnectFact(
+                Radios.ConnectFactKind.RunningInstrumentation,
+                runningNotice,
+                Radios.Lexicon.Get("logging.running.startup_brief"),
+                Radios.VerbosityLevel.Critical,
+                Radios.Speech.SpeechSubject.RunningInstrumentation));
+        }
+        return admitted;
     }
 
     /// <summary>

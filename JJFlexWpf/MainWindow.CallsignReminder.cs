@@ -76,14 +76,17 @@ public partial class MainWindow
 
     /// <summary>
     /// Home's arrival, parked behind a reminder that took the turn at the
-    /// welcome; replayed with the focus grab when the turn ends.
+    /// welcome; replayed with the focus grab when the turn ends. Returns true
+    /// only when its where-you-are sentence was admitted for speech
+    /// (<see cref="RequestWelcomeArrival"/>).
     /// </summary>
-    private Action? _pendingArrival;
+    private Func<bool>? _pendingArrival;
 
     /// <summary>
     /// True from the moment <see cref="ReplayParkedBringUp"/> runs a parked
-    /// arrival until the next return-to-app landing takes it, whatever that
-    /// landing then does (<see cref="TakeArrivalJustReplayed"/>).
+    /// arrival whose sentence was admitted for speech, until the next
+    /// return-to-app landing takes it, whatever that landing then does
+    /// (<see cref="TakeArrivalJustReplayed"/>).
     /// </summary>
     /// <remarks>
     /// <para><b>Why (repair round 4).</b> The reminder is a dialog of ours, and
@@ -95,9 +98,16 @@ public partial class MainWindow
     /// reminder closes on the bench. So the landing that follows a replayed
     /// arrival leaves out its own where-you-are sentence, and only that: its
     /// focus repair runs as always.</para>
+    /// <para><b>Only when the arrival was said (repair round 5).</b> At speech
+    /// verbosity Off the arrival, a Terse sentence, is kept back by the
+    /// verbosity gate, while the landing's own sentence is Critical and is
+    /// spoken. Marking because the callback merely returned silenced both, and
+    /// the operator heard nothing about where they were. So the arrival reports
+    /// whether the speech channel admitted it, and only that sets the mark.</para>
     /// <para><b>One landing only.</b> The landing takes it first thing, on every
     /// exit, and so does the dialog-close callback when the connect quiet scope
-    /// stands the landing down. A turn that showed no window posts no landing,
+    /// stands the landing down. A turn whose window did not close into a
+    /// landing (not shown, suppressed, or a show that failed) posts no landing,
     /// so <see cref="EndCallsignReminderTurn"/> clears it there; it cannot wait
     /// for a later, unrelated dialog close and silence that.</para>
     /// <para><b>The advisory chain.</b> It shares <see cref="ReplayParkedBringUp"/>
@@ -240,8 +250,10 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Spends the reminder: shown once, if it still applies. True when its
-    /// window was shown, so a landing follows its close.
+    /// Spends the reminder: shown once, if it still applies. True only when its
+    /// window was shown and its close posted the return-to-app landing
+    /// (<see cref="Dialogs.AdvisoryDialog.ShowAndReportLanding"/>); suppressed,
+    /// or a show that failed, is false.
     /// </summary>
     private bool ShowCallsignReminderIfDue()
     {
@@ -254,25 +266,24 @@ public partial class MainWindow
         }
         Tracing.TraceLine("CallsignReminder: shown", TraceLevel.Info);
         // DRAFT words (Lexicon).
-        Dialogs.AdvisoryDialog.Show(
+        return Dialogs.AdvisoryDialog.ShowAndReportLanding(
             Lexicon.Get("connect.startup.no_callsign_reminder_title"),
             Lexicon.Get("connect.startup.no_callsign_reminder_body"),
             AdvisoryKeys.NoCallsignReminder);
-        return true;
     }
 
     /// <summary>
     /// Ends the reminder's own turn and replays what waited behind it.
-    /// <paramref name="reminderShown"/> false means no window closed, so no
-    /// landing is coming to take <see cref="_arrivalJustReplayed"/>: it is
-    /// cleared here instead.
+    /// <paramref name="landingPosted"/> false means no window closed into a
+    /// landing, so none is coming to take <see cref="_arrivalJustReplayed"/>:
+    /// it is cleared here instead.
     /// </summary>
-    private void EndCallsignReminderTurn(bool reminderShown)
+    private void EndCallsignReminderTurn(bool landingPosted)
     {
         _callsignReminderTurn = false;
         _advisorySequenceActive = false;
         ReplayParkedBringUp();
-        if (!reminderShown) _arrivalJustReplayed = false;
+        if (!landingPosted) _arrivalJustReplayed = false;
     }
 
     /// <summary>
@@ -294,10 +305,16 @@ public partial class MainWindow
             _pendingArrival = null;
             try
             {
-                arrive();
-                // Home's arrival has said where the operator is; the landing
-                // the closing window posted must not say it again.
-                _arrivalJustReplayed = true;
+                // Marked only when the arrival was admitted for speech: Home's
+                // arrival has then said where the operator is, and the landing
+                // the closing window posted must not say it again. Held for a
+                // settle, or kept back by the verbosity setting, it said
+                // nothing, and the landing's own sentence is the one left.
+                if (arrive())
+                    _arrivalJustReplayed = true;
+                else
+                    Tracing.TraceLine("CallsignReminder: Home's arrival was not spoken now; the landing still says where the operator is",
+                        TraceLevel.Info);
             }
             catch (Exception ex) { Tracing.TraceLine("CallsignReminder: arrival: " + ex.Message, TraceLevel.Warning); }
         }

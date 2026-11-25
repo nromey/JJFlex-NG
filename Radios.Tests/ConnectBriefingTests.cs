@@ -423,6 +423,59 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// The arrival says whether it will be heard: true only when it was
+        /// handed to speech now AND the speech channel's verbosity gate admits
+        /// its level. A caller that silences its own where-you-are sentence on
+        /// the strength of this must not do so when the arrival was kept back
+        /// (at verbosity Off a Terse arrival is) or held for a settle.
+        /// </summary>
+        [Fact]
+        public void Home_arrival_reports_true_only_when_spoken_now_and_admitted()
+        {
+            VerbosityLevel current = VerbosityLevel.Chatty;
+            ConnectBriefing Gated() => new ConnectBriefing(u => _spoken.Add(u), () => _alarms++,
+                admits: level => (int)level <= (int)current);
+
+            Assert.True(Gated().RequestHomeArrival(Arrival, VerbosityLevel.Terse), "Chatty admits a Terse arrival");
+            current = VerbosityLevel.Terse;
+            Assert.True(Gated().RequestHomeArrival(Arrival, VerbosityLevel.Terse), "Terse admits a Terse arrival");
+            current = VerbosityLevel.Critical;
+            Assert.False(Gated().RequestHomeArrival(Arrival, VerbosityLevel.Terse), "Off keeps a Terse arrival back");
+            Assert.Equal(3, _spoken.Count);   // still handed to the sink each time: the gate is the channel's, not ours
+
+            current = VerbosityLevel.Chatty;
+            var held = Gated();
+            held.FlowBegan();
+            Assert.False(held.RequestHomeArrival(Arrival, VerbosityLevel.Terse), "held for the settle is not said now");
+            Assert.Equal(3, _spoken.Count);
+
+            Assert.False(Gated().RequestHomeArrival("", VerbosityLevel.Terse), "nothing to say");
+            Assert.True(New().RequestHomeArrival(Arrival, VerbosityLevel.Terse), "no gate given: every level is admitted");
+        }
+
+        /// <summary>The process briefing asks the speech channel's own gate, not a copy of its threshold.</summary>
+        [Fact]
+        public void The_process_briefing_asks_the_speech_channels_own_gate()
+        {
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(RepoRoot(), "Radios", "ConnectBriefing.cs"));
+            int current = src.IndexOf("public static ConnectBriefing Current { get; } = new ConnectBriefing(", StringComparison.Ordinal);
+            int end = src.IndexOf(");", src.IndexOf("ScreenReaderOutput.Supersede", current, StringComparison.Ordinal), StringComparison.Ordinal);
+            Assert.True(current > 0 && end > current);
+            Assert.Contains("ScreenReaderOutput.Admits", src.Substring(current, end - current + 2));
+
+            string sro = System.IO.File.ReadAllText(System.IO.Path.Combine(RepoRoot(), "Radios", "ScreenReaderOutput.cs"));
+            Assert.DoesNotContain("(int)level > (int)CurrentVerbosity", sro);
+        }
+
+        private static string RepoRoot()
+        {
+            var d = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (d != null && !System.IO.File.Exists(System.IO.Path.Combine(d.FullName, "JJFlexRadio.sln"))) d = d.Parent;
+            Assert.NotNull(d);
+            return d!.FullName;
+        }
+
+        /// <summary>
         /// The menu door closes as soon as the Connecting window does —
         /// 150 ms after "Waiting for slice…" in the 09:42 trace — and power-on
         /// comes seconds later. That end must not release Home.

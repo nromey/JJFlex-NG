@@ -170,12 +170,14 @@ namespace Radios
                 u.Text, SpeechIntent.Queue, u.Level, subject: u.Subject,
                 callerFile: u.OriginFile, callerLine: u.OriginLine, callerMember: u.OriginMember),
             () => ScreenReaderOutput.PlayWarningAlarmEarcon?.Invoke(),
-            (subject, by) => ScreenReaderOutput.Supersede(subject, by));
+            (subject, by) => ScreenReaderOutput.Supersede(subject, by),
+            ScreenReaderOutput.Admits);
 
         private readonly object _gate = new();
         private readonly Action<BriefingUtterance> _emit;
         private readonly Action _alarm;
         private readonly Action<string, string> _supersede;
+        private readonly Func<VerbosityLevel, bool> _admits;
 
         private bool _inFlight;
         private bool _radioChosen;
@@ -197,12 +199,20 @@ namespace Radios
         /// Optional so existing callers compile; a briefing without one simply
         /// cannot invalidate, which is the behaviour before #559.
         /// </param>
+        /// <param name="admits">
+        /// The speech channel's own verbosity gate, asked by
+        /// <see cref="RequestHomeArrival"/> so it can report whether its
+        /// sentence will be heard. Optional; without one every level is
+        /// admitted, which is what a sink that records everything means.
+        /// </param>
         public ConnectBriefing(Action<BriefingUtterance> emit, Action alarm,
-            Action<string, string>? supersede = null)
+            Action<string, string>? supersede = null,
+            Func<VerbosityLevel, bool>? admits = null)
         {
             _emit = emit ?? throw new ArgumentNullException(nameof(emit));
             _alarm = alarm ?? throw new ArgumentNullException(nameof(alarm));
             _supersede = supersede ?? ((_, _) => { });
+            _admits = admits ?? (_ => true);
         }
 
         /// <summary>Every subject asserted and not yet invalidated.</summary>
@@ -396,14 +406,21 @@ namespace Radios
         /// radio); spoken at once when Home is already the settled place the
         /// operator is.
         /// </summary>
-        public void RequestHomeArrival(
+        /// <returns>
+        /// True only when the sentence was handed to speech now AND its level
+        /// passes the speech channel's verbosity gate, so the operator is being
+        /// told where they are. False when it is held for a settle, empty, or
+        /// kept back by the verbosity setting: a caller must not treat the call
+        /// returning as the sentence having been said.
+        /// </returns>
+        public bool RequestHomeArrival(
             string text,
             VerbosityLevel level,
             [CallerFilePath] string originFile = "",
             [CallerLineNumber] int originLine = 0,
             [CallerMemberName] string originMember = "")
         {
-            if (string.IsNullOrEmpty(text)) return;
+            if (string.IsNullOrEmpty(text)) return false;
             var u = new BriefingUtterance(text, level, SpeechSubject.WhereYouAre, originFile, originLine, originMember);
             lock (_gate)
             {
@@ -412,10 +429,12 @@ namespace Radios
                     _heldArrival = u;
                     Tracing.TraceLine("ConnectBriefing: Home arrival held until the connect settles",
                         System.Diagnostics.TraceLevel.Info);
-                    return;
+                    return false;
                 }
             }
+            bool admitted = _admits(level);
             EmitAsserting(u);
+            return admitted;
         }
 
         // ── Settle ──────────────────────────────────────────────────────

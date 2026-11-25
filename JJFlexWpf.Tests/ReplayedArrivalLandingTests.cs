@@ -20,9 +20,12 @@ namespace JJFlexWpf.Tests;
 /// <remarks>
 /// <para><b>Driven through the production route:</b> MainWindow's own
 /// <c>ReplayParkedBringUp</c>, <c>EndCallsignReminderTurn</c> and
-/// <c>RunReturnToAppLanding</c>, with no radio. The parked arrival is a stand-in
-/// action, because what is under test is the landing behind it, not the
-/// arrival's own sentence.</para>
+/// <c>RunReturnToAppLanding</c>, with no radio. The first tests park a stand-in
+/// arrival, because what they test is the landing behind it. Repair round 5's
+/// tests park the production arrival (<c>RequestWelcomeArrival</c>, through
+/// <c>ConnectBriefing.Current</c> and the speech channel's verbosity gate): at
+/// verbosity Off that arrival is kept back, and the mark must not then silence
+/// the landing's Critical sentence too.</para>
 /// <para><b>What is counted.</b> Every utterance the speech layer emits is
 /// recorded by <see cref="OutputChannelRecorder"/> to a transcript of this test
 /// alone, with render off, after the arbiter's salvage window.</para>
@@ -87,12 +90,59 @@ public sealed class ReplayedArrivalLandingTests : IDisposable
 
     private bool Marked => (bool)Get("_arrivalJustReplayed")!;
 
-    /// <summary>Home's arrival parked behind the reminder, as SpeakWelcome parks it; true once it ran.</summary>
+    /// <summary>
+    /// A stand-in arrival parked behind the reminder that reports itself
+    /// admitted for speech; the returned probe is true once it ran.
+    /// </summary>
     private Func<bool> ParkArrival()
     {
         bool ran = false;
-        Put("_pendingArrival", (Action)(() => ran = true));
+        Put("_pendingArrival", (Func<bool>)(() => { ran = true; return true; }));
         return () => ran;
+    }
+
+    /// <summary>Home's no-radio arrival sentence, composed as SpeakWelcome composes it.</summary>
+    private static string ArrivalText => Lexicon.Get("connect.home.arrival_no_radio",
+        ("modeName", Lexicon.Get("connect.home.mode_modern")));
+
+    /// <summary>
+    /// The production arrival parked as SpeakWelcome parks it: MainWindow's own
+    /// RequestWelcomeArrival, through ConnectBriefing.Current.RequestHomeArrival
+    /// and ScreenReaderOutput's verbosity gate.
+    /// </summary>
+    private void ParkProductionArrival()
+    {
+        var m = typeof(MainWindow).GetMethod("RequestWelcomeArrival", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.True(m != null, "production entry MainWindow.RequestWelcomeArrival is missing");
+        Assert.False(ConnectBriefing.Current.InFlight,
+            "Refusing: a connect flight is open on the process briefing, so the arrival would be held, not spoken");
+        string text = ArrivalText;
+        Put("_pendingArrival", (Func<bool>)(() => (bool)m!.Invoke(null, new object?[] { text, null })!));
+    }
+
+    /// <summary>The recorded speech events since <see cref="Listen"/>, after the salvage window.</summary>
+    private List<JsonElement> Said()
+    {
+        Thread.Sleep(900);   // past SpeechArbiter's 600 ms salvage settle, so a replay is counted
+        using var stream = new FileStream(_transcript!, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => JsonDocument.Parse(l).RootElement.Clone())
+            .Where(e => e.GetProperty("event").GetString() == "speech")
+            .ToList();
+    }
+
+    private static bool Heard(JsonElement e)
+        => !e.GetProperty("gated").GetBoolean() && !e.GetProperty("suppressed").GetBoolean();
+
+    /// <summary>Every sentence that tells the operator they are on Home with no radio, at any verbosity.</summary>
+    private static bool IsWhereYouAre(JsonElement e)
+    {
+        string? text = e.GetProperty("text").GetString();
+        return text == ArrivalText
+            || text == Lexicon.Get("connect.no_radio.plain", VerbosityLevel.Critical)
+            || text == Lexicon.Get("connect.no_radio.plain", VerbosityLevel.Terse)
+            || text == Lexicon.Get("connect.no_radio.plain", VerbosityLevel.Chatty);
     }
 
     /// <summary>The landing a closing dialog of ours posts, with no radio.</summary>
@@ -181,6 +231,92 @@ public sealed class ReplayedArrivalLandingTests : IDisposable
 
         Call("EndCallsignReminderTurn", true);
         Assert.True(Marked, "the reminder's close posted a landing; the mark waits for it");
+    }
+
+    // ── repair round 5: the mark only when the arrival was admitted for speech ──
+
+    [Theory]
+    [InlineData(VerbosityLevel.Critical)]   // Settings' "Off (critical only)"
+    [InlineData(VerbosityLevel.Terse)]
+    [InlineData(VerbosityLevel.Chatty)]
+    public void At_every_verbosity_the_reminders_close_says_where_you_are_exactly_once(VerbosityLevel level)
+    {
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = level;
+        bool arrivalAdmitted = ScreenReaderOutput.Admits(VerbosityLevel.Terse);
+        ParkProductionArrival();
+
+        Listen();
+        Call("EndCallsignReminderTurn", true);   // the reminder showed, and its close posted a landing
+        bool markedForTheLanding = Marked;
+        Landing();                               // that landing
+        var said = Said();
+
+        // Positive control: the arrival really went through the speech gate,
+        // heard or recorded as gated, rather than never firing.
+        var arrival = said.Where(e => e.GetProperty("text").GetString() == ArrivalText).ToList();
+        Assert.True(arrival.Count >= 1, "the production arrival reached the speech channel");
+        Assert.Equal(arrivalAdmitted, arrival.Any(Heard));
+
+        var heard = said.Where(e => Heard(e) && IsWhereYouAre(e))
+            .Select(e => e.GetProperty("text").GetString()).ToList();
+        Assert.True(heard.Count == 1,
+            $"at {level} exactly one where-you-are sentence is heard; heard: [{string.Join(" | ", heard)}]");
+        Assert.Equal(arrivalAdmitted
+            ? ArrivalText
+            : Lexicon.Get("connect.no_radio.plain", level), heard[0]);
+        Assert.Equal(arrivalAdmitted, markedForTheLanding);
+        Assert.False(Marked, "the landing spent the mark");
+
+        // A later, unrelated dialog close still says where the operator is.
+        Listen();
+        Landing();
+        var later = Said().Where(e => Heard(e) && IsWhereYouAre(e)).ToList();
+        Assert.Single(later);
+        Assert.Equal(Lexicon.Get("connect.no_radio.plain", level), later[0].GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public void A_reminder_whose_close_posted_no_landing_leaves_no_mark_even_when_the_arrival_was_said()
+    {
+        // A show that failed (or was suppressed) reports no landing; the
+        // arrival is still replayed and heard, and no mark waits for a later,
+        // unrelated close.
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        ParkProductionArrival();
+
+        Listen();
+        Call("EndCallsignReminderTurn", false);
+        Assert.False(Marked, "no landing is coming, so no mark");
+        Assert.Contains(Said(), e => Heard(e) && e.GetProperty("text").GetString() == ArrivalText);
+
+        Listen();
+        Landing();
+        Assert.Equal(1, NoRadioSaid());
+    }
+
+    [Fact]
+    public void The_reminder_reports_a_landing_only_when_its_close_posted_one()
+    {
+        // Pinned from source: the show needs a real window. ShowModalDialog
+        // returns false for an ordinary Close as well as for a failed show, so
+        // the evidence is the close itself posting the landing.
+        AssertTheDeskIsSafe();
+        string reminder = Src("JJFlexWpf", "MainWindow.CallsignReminder.cs");
+        string show = Body(reminder, "private bool ShowCallsignReminderIfDue()");
+        Assert.Contains("return Dialogs.AdvisoryDialog.ShowAndReportLanding(", show);
+        Assert.DoesNotContain("return true;", show);
+
+        string advisory = Src("JJFlexWpf", "Dialogs", "AdvisoryDialog.cs");
+        Assert.Contains("return dialog.ReturnLandingPosted;", advisory);
+
+        string dialog = Src("JJFlexWpf", "JJFlexDialog.cs");
+        int post = dialog.IndexOf("Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, FocusReturnCallback);", StringComparison.Ordinal);
+        int set = dialog.IndexOf("ReturnLandingPosted = true;", StringComparison.Ordinal);
+        Assert.True(post > 0 && set > post && set - post < 120,
+            "ReturnLandingPosted is set right where the close posts the landing");
+        Assert.Equal(set, dialog.LastIndexOf("ReturnLandingPosted = true;", StringComparison.Ordinal));
     }
 
     [Fact]

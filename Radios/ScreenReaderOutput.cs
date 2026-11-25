@@ -87,6 +87,15 @@ namespace Radios
         /// </summary>
         public static VerbosityLevel CurrentVerbosity { get; set; } = VerbosityLevel.Chatty;
 
+        /// <summary>
+        /// The verbosity gate: true when a message at <paramref name="level"/>
+        /// is spoken at <see cref="CurrentVerbosity"/>, false when it would be
+        /// held back and recorded as gated. Every Speak overload here asks this,
+        /// so a caller that needs to know whether its sentence will be heard
+        /// asks the same question rather than keeping a copy of the threshold.
+        /// </summary>
+        public static bool Admits(VerbosityLevel level) => (int)level <= (int)CurrentVerbosity;
+
         // Timing for speech delays - kept short so user isn't stuck waiting if they silence (Ctrl)
         // We only wait long enough for critical messages to be heard, not to complete fully
         // Average speaking rate ~150 words/min, but we use shorter delays for responsiveness
@@ -477,7 +486,7 @@ namespace Radios
             [CallerMemberName] string callerMember = "")
         {
             string origin = FormatOrigin(callerFile, callerLine, callerMember);
-            if ((int)level > (int)CurrentVerbosity)
+            if (!Admits(level))
             {
                 RecordGated(message, level, Speech.SpeechIntent.Queue, origin);
                 return;
@@ -562,7 +571,7 @@ namespace Radios
         {
             if (string.IsNullOrEmpty(message)) return;
             string origin = FormatOrigin(callerFile, callerLine, callerMember);
-            if ((int)level > (int)CurrentVerbosity)
+            if (!Admits(level))
             {
                 // Recorded rather than vanishing: "fired but the verbosity
                 // filter dropped it" and "never fired" sound identical (like
@@ -636,7 +645,7 @@ namespace Radios
         {
             if (string.IsNullOrEmpty(message)) return;
             string origin = FormatOrigin(callerFile, callerLine, callerMember);
-            if ((int)level > (int)CurrentVerbosity)
+            if (!Admits(level))
             {
                 RecordGated(message, level, Speech.SpeechIntent.Interrupt, origin);
                 return;
@@ -1022,7 +1031,7 @@ namespace Radios
         {
             if (string.IsNullOrEmpty(message)) return;
             string origin = FormatOrigin(callerFile, callerLine, callerMember);
-            if ((int)level > (int)CurrentVerbosity)
+            if (!Admits(level))
             {
                 RecordGated(message, level, null, origin);
                 return;

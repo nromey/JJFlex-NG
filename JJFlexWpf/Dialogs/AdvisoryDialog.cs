@@ -146,9 +146,19 @@ public sealed class AdvisoryDialog : JJFlexDialog
     /// </summary>
     public static void Show(string title, string body, Radios.AdvisoryKey? suppressKey = null,
         params AdvisoryAction[] actions)
+        => ShowAndReportLanding(title, body, suppressKey, actions);
+
+    /// <summary>
+    /// <see cref="Show"/>, reporting whether the advisory was really shown and
+    /// its close posted the return-to-app landing
+    /// (<see cref="JJFlexDialog.ReturnLandingPosted"/>). False when it was
+    /// suppressed, or when the show failed and no close ran.
+    /// </summary>
+    internal static bool ShowAndReportLanding(string title, string body, Radios.AdvisoryKey? suppressKey = null,
+        params AdvisoryAction[] actions)
     {
         if (suppressKey != null && Radios.AdvisorySuppression.IsSuppressed(suppressKey))
-            return;
+            return false;
 
         var dialog = new AdvisoryDialog(title, body, suppressKey, actions);
         dialog.ShowModalDialog();
@@ -157,5 +167,6 @@ public sealed class AdvisoryDialog : JJFlexDialog
             Radios.AdvisorySuppression.Suppress(suppressKey);
 
         dialog._chosenAction?.Invoke();
+        return dialog.ReturnLandingPosted;
     }
 }

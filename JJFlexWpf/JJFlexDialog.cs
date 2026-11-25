@@ -351,8 +351,18 @@ namespace JJFlexWpf
             if (FocusReturnCallback != null)
             {
                 Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, FocusReturnCallback);
+                ReturnLandingPosted = true;
             }
         }
+
+        /// <summary>
+        /// True once this dialog's close has posted the return-to-app landing
+        /// (<see cref="FocusReturnCallback"/>). The evidence a caller needs that
+        /// the window really was shown and closed: <see cref="ShowModalDialog"/>
+        /// returns false both for an ordinary Close or Escape and for a show
+        /// that failed, so its result cannot tell them apart.
+        /// </summary>
+        internal bool ReturnLandingPosted { get; private set; }
 
         /// <summary>
         /// Whether this dialog speaks its own title on arrival, beside the
