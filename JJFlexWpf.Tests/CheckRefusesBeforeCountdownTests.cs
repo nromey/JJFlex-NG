@@ -91,7 +91,10 @@ public sealed class CheckRefusesBeforeCountdownTests : IDisposable
         string body = Method(Source("JJFlexWpf", "Dialogs", "CheckYourAudioDialog.Check.cs"), "public void ToggleAudioCheck(");
         int computerMic = body.IndexOf("ToggleComputerMicCheck();", StringComparison.Ordinal);
         int transmitting = body.IndexOf("if (ptt.IsTransmitting)", StringComparison.Ordinal);
-        int callsign = body.IndexOf("if (ZeroPowerDoors.RefuseNoCallsign(_rig, \"Check your audio's start\")) return;", StringComparison.Ordinal);
+        // #1306: the callsign question moved into RefuseStartForNoCallsign,
+        // which says this window's own sentence and shows the button that
+        // turns the check off. Changed on purpose; its body is pinned below.
+        int callsign = body.IndexOf("if (RefuseStartForNoCallsign()) return;", StringComparison.Ordinal);
         int another = body.IndexOf("if (ptt.RefuseWhileAnotherStationTransmits(\"Check your audio's start\")) return;", StringComparison.Ordinal);
         Assert.True(computerMic > 0 && transmitting > computerMic, "the computer microphone leaves first and keys nothing");
         Assert.True(callsign > transmitting && another > callsign, "after the already-transmitting check, callsign first");

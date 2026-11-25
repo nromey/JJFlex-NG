@@ -155,6 +155,15 @@ namespace Radios.Speech
         public const string TransmitKeyRefused = "transmit-key-refused";
 
         /// <summary>
+        /// The answer to Check your audio's "Turn off the callsign check"
+        /// button (#1306): the check is off for everyone on this computer, or
+        /// off only until the program closes because the change could not be
+        /// saved. Said once per press, after focus has moved back to Start.
+        /// The next press, or the check started again, retires an unheard one.
+        /// </summary>
+        public const string CallsignCheckTurnedOff = "callsign-check-turned-off";
+
+        /// <summary>
         /// The radio did not key for the tune carrier (#447): it refused with
         /// a reason, or the time for it to report has passed. Critical, so it
         /// reaches every verbosity: the operator is waiting for RF that is not

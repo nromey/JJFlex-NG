@@ -104,7 +104,11 @@ internal static class ZeroPowerDoors
     /// <param name="rig">The radio. None reads as not refused (nothing can key).</param>
     /// <param name="door">The door, for the trace. One press answers once per door.</param>
     /// <param name="afterMenu">The press came from a menu, which is about to close.</param>
-    internal static bool RefuseNoCallsign(FlexBase? rig, string door, bool afterMenu = false)
+    /// <param name="sentence">A window's own form of the sentence, when it
+    /// shows the operator something the shared one cannot name (Check your
+    /// audio's button that turns the check off, #1306). Null for the shared
+    /// <see cref="FlexBase.NoCallsignRefusal"/>.</param>
+    internal static bool RefuseNoCallsign(FlexBase? rig, string door, bool afterMenu = false, string? sentence = null)
     {
         if (!NoCallsign(rig)) return false;
         // Said at Critical, so no verbosity setting silences it (ruled by Noel
@@ -112,7 +116,7 @@ internal static class ZeroPowerDoors
         // is entered, so the operator must always hear why. The zero-power
         // refusal stays at Terse (2026-11-01); this differs on purpose. The
         // tone still answers to its own gate, and the trace is always written.
-        Answer("callsign: " + door, FlexBase.NoCallsignRefusal, afterMenu,
+        Answer("callsign: " + door, sentence ?? FlexBase.NoCallsignRefusal, afterMenu,
             SpeechSubject.TransmitKeyRefused, "refused with no operator callsign: ",
             VerbosityLevel.Critical);
         return true;

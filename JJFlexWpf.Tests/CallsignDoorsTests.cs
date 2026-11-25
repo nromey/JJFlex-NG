@@ -34,7 +34,8 @@ namespace JJFlexWpf.Tests;
 [Collection("TuneDoors")]
 public sealed class CallsignDoorsTests : IDisposable
 {
-    private const string NoCall = "This command requires an operator callsign. Enter yours in the Radio menu, under Operators.";
+    // #1306: the sentence now names both ways forward, a callsign or turning the check off (DRAFT).
+    private const string NoCall = "This command requires an operator callsign. Enter yours in the Radio menu, under Operators, or turn off Require a callsign to transmit in Tools, Settings, License.";
     private const BindingFlags Any = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static;
 
     private readonly FlexBase _rig = new(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });

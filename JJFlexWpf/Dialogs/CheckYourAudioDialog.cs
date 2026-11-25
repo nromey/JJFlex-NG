@@ -885,6 +885,7 @@ public partial class CheckYourAudioDialog : JJFlexDialog
         RefreshOfferedMethods();
         SyncPlayTakeLabel();
         UpdateMicReading();
+        SyncCallsignCheckOffButton(rig);   // #1306
     }
 
     private static CheckBox MakeToggle(string label) => AudioWorkshopDialog.MakeToggle(label);

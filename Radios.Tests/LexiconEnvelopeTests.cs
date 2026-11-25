@@ -3203,6 +3203,13 @@ namespace Radios.Tests
                 // becomes the operator's choice. DRAFT words, for Codex.
                 "settings.license.require_callsign_label",
                 "settings.license.require_callsign_help",
+                // ...and the way out from a refusal: Check your audio's own
+                // sentence, its button, and the button's answers. DRAFT.
+                "settings.operators.no_callsign_check_your_audio",
+                "settings.operators.callsign_check_off_button",
+                "settings.operators.callsign_check_off_help",
+                "settings.operators.callsign_check_turned_off",
+                "settings.operators.callsign_check_off_not_saved",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

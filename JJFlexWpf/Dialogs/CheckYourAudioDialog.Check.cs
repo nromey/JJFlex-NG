@@ -140,6 +140,8 @@ public partial class CheckYourAudioDialog
         AutomationProperties.SetAcceleratorKey(_startCheckButton, "Ctrl+Enter");
         _startCheckButton.Click += (s, e) => ToggleAudioCheck();
         _sections.Add(CheckContent, _startCheckButton);
+        // Hidden until a start is refused for a missing callsign (#1306).
+        BuildCallsignCheckOffButton();
 
         _sections.Open(CheckContent, "Method");
         _listenMethodControl = MakeCycle("Method", MethodNames(_offered));
@@ -824,7 +826,9 @@ public partial class CheckYourAudioDialog
         // (#910), whose keyed gate a check's own key skips. Test your
         // microphone keys too, at zero, so it is asked both. The keyed gates
         // stay where they are.
-        if (ZeroPowerDoors.RefuseNoCallsign(_rig, "Check your audio's start")) return;
+        // #1306: refused with this window's own sentence and a button that
+        // turns the check off (CheckYourAudioDialog.CallsignCheck.cs).
+        if (RefuseStartForNoCallsign()) return;
         if (ptt.RefuseWhileAnotherStationTransmits("Check your audio's start")) return;
 
         // A check keys the radio, so it cannot start over a tune carrier. It used

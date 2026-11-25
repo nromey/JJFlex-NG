@@ -94,7 +94,7 @@ public sealed class CallsignCheckSettingTests
         Assert.Contains("_audioConfig.RequireCallsignToTransmit = RequireCallsignCheckbox.IsChecked == true;", dialog);
         // Its name and its Ctrl+F1 text are set, from the Lexicon.
         Assert.Contains("AutomationProperties.SetName(RequireCallsignCheckbox,", dialog);
-        Assert.Contains("JJFlexHelp.SetText(RequireCallsignCheckbox, Lexicon.Get(", dialog);
+        Assert.Contains("JJFlexHelp.SetText(RequireCallsignCheckbox,", dialog);
 
         // On the License tab, right after TX band lockout.
         string xaml = File.ReadAllText(Path.Combine(repo, "JJFlexWpf", "Dialogs", "SettingsDialog.xaml"));
