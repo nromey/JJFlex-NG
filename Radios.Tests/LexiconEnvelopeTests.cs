@@ -2777,6 +2777,10 @@ namespace Radios.Tests
                 "audio.fields.rf_preamp",
                 "audio.fields.rf_preamp_on",
                 "audio.fields.rf_preamp_off",
+                // Junk box batch 29 (#1291): RF Gain Up or Down before the
+                // panadapter has reported its range steps nothing and says so,
+                // in answer to the operator's own menu press. DRAFT prose.
+                "audio.fields.rf_gain_range_asked",
                 // Junk box 2026-11-06 integration (#747): the unit travels
                 // with the width from the shared formatter, so Home's receive
                 // filter field is one string (it was a Hz and a kHz pair) and

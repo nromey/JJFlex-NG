@@ -187,5 +187,56 @@ namespace Radios.Tests
 
             Assert.False(FlexBase.IsPreampSwitch(_rig.ActiveRFGainReport, out _));
         }
+
+        // ------------------------------------------------------------------
+        // #1291: a panadapter that has not reported is known as unreported,
+        // its range is asked for, and the Radio menu steps nothing on it.
+        // ------------------------------------------------------------------
+
+        private int RangeRequestsFor(Panadapter pan) =>
+            _vendor.Transport.Commands.Count(c => c.Contains("display pan rfgain_info 0x"
+                + ((uint)typeof(Panadapter).GetField("_streamID", Private)!.GetValue(pan)!).ToString("X")));
+
+        [Fact]
+        public void A_panadapter_is_unreported_until_its_completed_report_and_then_reported()
+        {
+            Assert.False(_rig.HasRFGainReport(_panA));
+            Assert.False(_rig.HasRFGainReport(null!));
+            CompletedReply(_panA, "-8,32,8,0,16,32");
+            Assert.True(_rig.HasRFGainReport(_panA));
+            Assert.False(_rig.HasRFGainReport(_panB), "another panadapter's report is not this one's");
+        }
+
+        [Fact]
+        public void Asking_for_the_range_sends_the_request_for_that_panadapter()
+        {
+            int before = RangeRequestsFor(_panA);
+            _rig.RequestRFGainRange(_panA, "test");
+            Assert.Equal(before + 1, RangeRequestsFor(_panA));
+            Assert.Equal(0, RangeRequestsFor(_panB));
+            _rig.RequestRFGainRange(null!, "test");   // nothing to ask, nothing thrown
+        }
+
+        /// <summary>
+        /// The Radio menu's RF Gain Up and Down (SOURCE PIN: NativeMenuBar needs
+        /// a window). Before any step or switch, an unreported panadapter is
+        /// asked for its range and the refusal is said; the step comes after.
+        /// </summary>
+        [Fact]
+        public void The_menu_steps_nothing_on_an_unreported_panadapter()
+        {
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                FlexBasePartials.RepoRoot(), "JJFlexWpf", "NativeMenuBar.cs"));
+            int body = src.IndexOf("private void AdjustRfGain(bool up)", StringComparison.Ordinal);
+            Assert.True(body > 0);
+            int guard = src.IndexOf("if (report.Pan != null && !Rig.HasRFGainReport(report.Pan))", body, StringComparison.Ordinal);
+            int ask = src.IndexOf("Rig.RequestRFGainRange(report.Pan,", body, StringComparison.Ordinal);
+            int say = src.IndexOf("Radios.Lexicon" + ".Get(\"audio.fields.rf_gain_range_asked\")", body, StringComparison.Ordinal);
+            int ret = src.IndexOf("return;", say, StringComparison.Ordinal);
+            int preamp = src.IndexOf("FlexBase.IsPreampSwitch(report, out int onDb)", body, StringComparison.Ordinal);
+            int step = src.IndexOf("AdjustValue(\"RF Gain\"", body, StringComparison.Ordinal);
+            Assert.True(guard > body && ask > guard && say > ask && ret > say, "the guard asks, says, and returns");
+            Assert.True(ret < preamp && preamp < step, "before the switch and the step");
+        }
     }
 }

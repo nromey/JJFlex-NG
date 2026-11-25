@@ -2102,6 +2102,15 @@ public class NativeMenuBar : IDisposable
         // One report, and the panadapter it belongs to, for both the decision
         // and the write (repair round 2).
         var report = Rig.ActiveRFGainReport;
+        // #1291: a panadapter that has not reported its range would be stepped
+        // by the defaults, which the radio may refuse (the 8600 said 18 while
+        // holding 8). Ask for the range, step nothing, and say so.
+        if (report.Pan != null && !Rig.HasRFGainReport(report.Pan))
+        {
+            Rig.RequestRFGainRange(report.Pan, "RF Gain " + (up ? "Up" : "Down") + " before a report");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("audio.fields.rf_gain_range_asked"));
+            return;
+        }
         if (FlexBase.IsPreampSwitch(report, out int onDb))
         {
             int value = up ? onDb : 0;

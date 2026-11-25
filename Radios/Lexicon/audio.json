@@ -310,6 +310,8 @@
   "audio.fields.rf_preamp": {"text": "RF preamp", "delivery": null},
   "audio.fields.rf_preamp_on": {"text": "RF preamp on, {db} dB", "delivery": null},
   "audio.fields.rf_preamp_off": {"text": "RF preamp off", "delivery": null},
+  "_note_1291": "Junk box batch 29 (2026-11-24, #1291): audio.fields.rf_gain_range_asked is said when RF Gain Up or Down is chosen before the panadapter has reported its RF gain range; the app asks the radio for it and steps nothing. A DRAFT FOR CODEX AND NOEL, not approved copy.",
+  "audio.fields.rf_gain_range_asked": {"text": "RF gain not changed: the radio has not reported its RF gain steps yet. They have been asked for; try again in a moment.", "delivery": null},
   "audio.fields.rx_antenna": "RX Antenna",
   "audio.fields.rx_filter_width": {"text": "RX Filter: {filterLow} to {filterHigh}, {filterWidth}", "delivery": null},
   "audio.fields.rx_filter_width_name": "RX Filter Width",

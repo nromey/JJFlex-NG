@@ -7144,6 +7144,11 @@ namespace Radios
                 }
                 ObserveOwnPanadapterAdded(binding, pan);
                 Tracing.TraceLine("panadapterAdded:mine " + ct.ToString() + ':' + pan.ToString(), TraceLevel.Info);
+                // #1291: ask for this pan's RF gain range as soon as it is ours,
+                // not only from the ActiveSlice handler, which skips the
+                // request when it refuses a slice (measured on the 8600: no
+                // range ever asked, and RF Gain Up stepped by the defaults).
+                RequestRFGainRange(pan, "panadapterAdded");
                 noteArrivals(); // attribute this pan's arrival on a returning connect (#782)
             }
             else Tracing.TraceLine("panadapterAdded:not mine " + pan.ToString(), TraceLevel.Info);
@@ -13532,6 +13537,34 @@ namespace Radios
         {
             if (pan != null && _rfGainReports.TryGetValue(pan, out var box)) return box.Value;
             return NotYetReported(pan);
+        }
+
+        /// <summary>
+        /// Whether this panadapter has sent a completed RF gain report (#1291).
+        /// False means <see cref="ReportForPanadapter"/> is answering with the
+        /// defaults, which a radio may refuse (the 8600 takes minus 8 to 32 in
+        /// eights), so nothing should step by them.
+        /// </summary>
+        public bool HasRFGainReport(Panadapter pan) => pan != null && _rfGainReports.TryGetValue(pan, out _);
+
+        /// <summary>
+        /// Ask the radio for one panadapter's RF gain range (#1291). Its answer
+        /// is recorded by <see cref="RecordRFGainReport"/> when the vendor
+        /// raises RFGainMarkers. Safe to call more than once; a failure is
+        /// traced, never thrown.
+        /// </summary>
+        public void RequestRFGainRange(Panadapter pan, string why)
+        {
+            if (pan == null) return;
+            try
+            {
+                pan.GetRFGainInfo();
+                Tracing.TraceLine("RequestRFGainRange: asked for " + pan + " (" + why + ")", TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("RequestRFGainRange: " + why + ": " + ex.Message, TraceLevel.Warning);
+            }
         }
 
         /// <summary>
