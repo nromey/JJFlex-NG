@@ -1,45 +1,72 @@
 WHAT IS NEW SINCE THE LAST BUILD
 
-Thanks for the Check your audio writeup. This build is a round of
-fixes around it, most of them about the 6300 and about tune. The ones
-you will notice:
+The last build was November 2, so this one carries three weeks of
+work. The full list is long; these are the ones you are most likely
+to notice.
 
-- On a 6300, recording yourself at 0 watts used to play back nothing.
-  Check your audio now runs at Low power there, from 1 watt, and puts
-  your power back when the check ends. Test your microphone still runs
-  at zero, because nothing goes on the air.
-- The 6300 can't be set to 0 watts in the app any more: the arrows
-  stop at 1, and a typed 0 says why. If the radio does read 0, a press
-  that would key it tells you so instead of keying silently.
-- Tune says what the radio did. "Tune on" waits for the radio to
-  report it is transmitting, and a refused tune tells you why.
-- Tune no longer stays on quietly. After 25 seconds you hear a tone and
-  "Tune is still on", every 25 seconds. If you tune up a long time, you
-  can stretch that to half an hour on the PTT page in Settings.
-- While tune is on, recording is refused, and playing a recording says
-  it won't go out on the air.
-- With tune on, Escape in Check your audio turns tune off and leaves the
-  window open. Ctrl+Shift+T works inside that window too.
-- Ctrl+Enter in Check your audio starts a check on the first press
-  after a take has played to its end.
-- Save Station Setup to Radio is on the Radio menu now, right after
-  Profiles on This Radio.
-- After a disconnect, the window title says no radio connected instead
-  of naming the slice you had.
-- The connect tone plays out whole, and "1 watts" reads "1 watt".
+Please note: This build does not include any noise reduction or audio processing fixes or additions. i am finalizing the additions, testing various parts of the new systems we've added, and just making sure that all of it works. The changes you'll experience with this build are fixes and additions that are outside the pervue of any audio processing. I also plan on doing some other upgrades and efficiency saving measures. Stay tuned for a rediculous raft of additions to be released in a week or less.
+
+Before You START
+
+- JJ Flexible Radio Access now needs your callsign before it keys the radio, for
+  push to talk, the transmit lock, tune, a send or a check. Enter
+  yours under Radio, Operators.
+- Your update choices (channel, checks on launch, skipped version)
+  were never actually saved before. They are now, so please set them
+  once more in Settings.
+
+SMARTLINK
+
+- SmartLink tries your forwarded ports and UPnP ports in order, and
+  says when the connection method changes. A connection only counts
+  as made once radio setup completes and audio or data arrives.
+- A hole-punch port saved for the whole account by an older version
+  is no longer used. Set a fixed port for one radio under Per-radio
+  settings, or leave it blank and JJ Flexible picks one each time.
+- Connecting to a radio on one of your other saved SmartLink accounts
+  goes straight through that account, with no ten-second wait.
+- Cancelling the SmartLink sign-in, or closing the browser sign-in
+  page, now just says "Login cancelled", with no failure message
+  after it. Escape closes the sign-in page.
+- Radios on your own network sit at the top of the radio list.
+
+CHECKING HOW YOU SOUND
+
+- Play takes is a new window listing every take of your audio on
+  this computer, newest first. Play, compare, add a note, save a
+  copy or delete. Ctrl+J then Alt+T opens it, and Check your audio
+  has a Play takes button.
+- Check your audio's methods that make a take are now called Radio
+  recording, Heard on the air, and Looped back.
+- The reference recording now ends the transmission when it ends,
+  and fits inside the radio's two-minute recorder.
+- F11 warns before replacing a recording on the radio, and offers
+  to back it up first.
+
+TUNING, FILTERS AND THE RADIO
+
+- On a radio with RF gain of just 0 and 20, like the 6300, Home has
+  an RF preamp switch instead of a two-stop number field.
+- With AGC off you can now set the gain: the AGC field becomes "AGC
+  Off Gain".
+- Filter widths say exactly what they are, and filter changes tell
+  you the filter you actually got.
+- Heads up: filter edge mode has new keys. Alt+Shift+Left Bracket
+  grabs the low edge, Alt+Shift+Right Bracket the high edge. Two
+  quick bracket presses no longer grab an edge.
+- Heads up: Up and Down on the Slice fields now tune by your coarse
+  step. Ctrl+Up and Down tune coarse, and Shift+Up and Down tune
+  fine, from every field on Home's slice row.
+- You can add and remove your own coarse and fine tuning steps in
+  the list S opens.
+- You can choose which modes Alt+M steps through, under Settings,
+  Notifications, Mode Cycle.
+- Ctrl+T sends a tune carrier when the tuner isn't on automatic, and
+  the ATU switch no longer turns itself off after a tune.
+- When the radio reports another station transmitting, push to talk
+  and the transmit lock refuse and tell you why.
 
 KNOWN ISSUES
 
-- Check your audio transmits on your transmit slice, which may not be
-  the slice you are listening to, and it does not yet say which. Before
-  a check, make sure the slice you listened on is the transmit slice.
-- Just after you turn VOX on, the radio can key itself for about a
-  third of a second. It looks like the radio doing it, not the app; I'm
-  still looking into it.
-- A hand mic or footswitch on the radio's own PTT jack keys the radio
-  with the radio's microphone, so your computer microphone is silent
-  on the air, and nothing tells you yet. A fix is planned.
-- With VOX on, the Fix tool's transmit stage can say "passed" when it
-  did not transmit at all.
-- Shift+Space doesn't lock the transmitter inside dialogs yet. Use
-  Alt+Shift+Space there.
+- The noise reduction work in progress is not in this build yet.
+- JJ Flexible does not yet enforce the US 60 meter power limits.
