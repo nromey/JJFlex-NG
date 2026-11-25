@@ -26,7 +26,6 @@
   "settings.atu.available_reopen": "The antenna tuner is available — reopen this menu.",
   "settings.atu.memories_cleared": "ATU memories cleared",
   "settings.atu.memories_unavailable": "ATU memories not available",
-  "settings.atu.mode": "ATU mode {newMode}",
   "settings.atu.none_on_radio": "No antenna tuner on this radio",
   "settings.atu.turned_off": "ATU off",
   "settings.atu.turned_on": "ATU on",

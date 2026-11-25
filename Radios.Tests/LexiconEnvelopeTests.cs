@@ -3294,7 +3294,10 @@ namespace Radios.Tests
             // way_in.not_set, settings.network.test_punched_declined, settings.radio.
             // check.punched_declined, settings.profile.mode_automatic) and removed
             // connect.connecting.phase_slice_wait, which had no caller.
-            Assert.Equal(3023, unclassified);
+            // Three fewer (3023 to 3020): junk box batch 29 (#990) removed
+            // audio.check.line_transmitting, audio.fields.atu_mode_none and
+            // settings.atu.mode, which nothing called.
+            Assert.Equal(3020, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
