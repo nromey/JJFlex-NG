@@ -554,10 +554,21 @@ namespace JJFlexWpf
             private readonly int _length;
             private readonly CancellationToken _cancel;
 
-            internal ClarityRenders(TxNoiseSetup setup, TxNoiseGateSetup gate, UpstreamAudio up, Passband passband, int length, CancellationToken cancel)
+            internal ClarityRenders(TxNoiseSetup setup, TxNoiseGateSetup gate, UpstreamAudio up, Passband passband, int length, CancellationToken cancel,
+                AuditionLiveState? live)
             {
                 _setup = setup; _gate = gate; _up = up; _passband = passband; _length = length; _cancel = cancel;
+                Live = live;
             }
+
+            /// <summary>
+            /// The live transmit side as it read when the take was prepared, or
+            /// null with no radio (repair 1, B2). Every render here is at 48 kHz
+            /// with the whole chain running; the live stream may run at another
+            /// rate, and in CW and the digital modes the live chain stands
+            /// aside. Whoever reports these renders must say so from this.
+            /// </summary>
+            public AuditionLiveState? Live { get; }
 
             /// <summary>Whether the setup's limiter is on.</summary>
             public bool LimiterOn => _setup.Limiter?.Enabled == true;
@@ -627,7 +638,7 @@ namespace JJFlexWpf
                 refusal = Upstream(rawMono, setup, live, gate, engines.Catalog, engines.ExpanderHost, plans, cancel,
                     progress == null ? null : b => progress(Math.Min(1.0, (double)b / Math.Max(1, buffers))), out var up);
                 if (refusal != null) return null;
-                return new ClarityRenders(setup, gate, up, PassbandSource(), rawMono.Length, cancel);
+                return new ClarityRenders(setup, gate, up, PassbandSource(), rawMono.Length, cancel, live);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)

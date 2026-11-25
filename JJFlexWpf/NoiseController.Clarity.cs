@@ -49,15 +49,24 @@ namespace JJFlexWpf
         //  Switches
         // ────────────────────────────────────────────────────────────────
 
-        /// <summary>Whether JJ Clarity as a whole is on (the operator's intent).</summary>
+        /// <summary>Whether JJ Clarity as a whole is on (the operator's intent, as it has RUN: a switch asked for while keyed shows here at the unkey).</summary>
         public bool ClarityOn => TxAudioConditioning.ClaritySetup.Enabled;
+
+        /// <summary>
+        /// JJ Clarity as LAST ASKED FOR: the intent with every change still
+        /// waiting for the unkey run on it, in order (repair 1, B1). A toggle,
+        /// a "next" row and "is this already so?" read this, so the newest
+        /// request is what they step from and what wins.
+        /// </summary>
+        private static TxClaritySetup ClarityAsked => TxAudioConditioning.AskedShaping().Clarity;
 
         /// <summary>Whether one band is on: the high band (brightness) or the low band (fullness). A band adds nothing while the whole stage is off.</summary>
         public bool ClarityBandOn(bool high) => TxAudioConditioning.ClaritySetup.Band(high).Enabled;
 
         /// <summary>The harmonics one band makes, as a word of <see cref="TxClarityHarmonics"/>.</summary>
-        public string ClarityHarmonicsOf(bool high) =>
-            TxClarityHarmonics.ToWord(TxClarityHarmonics.ToChoice(TxAudioConditioning.ClaritySetup.Band(high).Harmonics));
+        public string ClarityHarmonicsOf(bool high) => HarmonicsWord(TxAudioConditioning.ClaritySetup.Band(high));
+
+        private static string HarmonicsWord(TxClarityBandSetup band) => TxClarityHarmonics.ToWord(TxClarityHarmonics.ToChoice(band.Harmonics));
 
         /// <summary>A band's spoken name: the high band is the one that adds brightness, the low band the one that adds fullness.</summary>
         public static string ClarityBandName(bool high) => Lexicon.Get(high ? "audio.clarity.band.high" : "audio.clarity.band.low");
@@ -75,37 +84,38 @@ namespace JJFlexWpf
         {
             using var owned = OwnTx(source);
             using var oneUtterance = OneUtterance();
-            bool was = ClarityOn;
-            var timing = was == on ? TxChangeResult.Now : TxAudioConditioning.SetClarityEnabled(on);
+            bool was = ClarityAsked.Enabled;
+            var timing = was == on ? AlreadyAsked(ClarityOn == on) : TxAudioConditioning.SetClarityEnabled(on);
             if (was != on) NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), Cl, "", Words(was), Words(on));
             Say(L(on ? "audio.clarity.on" : "audio.clarity.off"), SpeechSubject.TransmitClarity);
             SayAtUnkey(timing);
         }
 
-        public void ToggleClarity(string source) => SetClarityOn(!ClarityOn, source);
+        /// <summary>The other way from what was last asked for (not from what has run: two presses while keyed end where they began).</summary>
+        public void ToggleClarity(string source) => SetClarityOn(!ClarityAsked.Enabled, source);
 
         /// <summary>One band on or off, speaking its timing (a switch).</summary>
         public void SetClarityBandOn(bool high, bool on, string source)
         {
             using var owned = OwnTx(source);
             using var oneUtterance = OneUtterance();
-            bool was = ClarityBandOn(high);
-            var timing = was == on ? TxChangeResult.Now : TxAudioConditioning.SetClarityBandEnabled(high, on);
+            bool was = ClarityAsked.Band(high).Enabled;
+            var timing = was == on ? AlreadyAsked(ClarityBandOn(high) == on) : TxAudioConditioning.SetClarityBandEnabled(high, on);
             if (was != on) NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), Cl, high ? "high" : "low", Words(was), Words(on));
             Say(L(on ? "audio.clarity.band_on" : "audio.clarity.band_off", ("band", ClarityBandName(high))), SpeechSubject.TransmitClarity);
             SayAtUnkey(timing);
         }
 
-        public void ToggleClarityBand(bool high, string source) => SetClarityBandOn(high, !ClarityBandOn(high), source);
+        public void ToggleClarityBand(bool high, string source) => SetClarityBandOn(high, !ClarityAsked.Band(high).Enabled, source);
 
         /// <summary>The harmonics one band makes, speaking its timing (a switch).</summary>
         public void SetClarityHarmonics(bool high, string word, string source)
         {
             using var owned = OwnTx(source);
             using var oneUtterance = OneUtterance();
-            string was = ClarityHarmonicsOf(high);
+            string was = HarmonicsWord(ClarityAsked.Band(high));
             string want = TxClarityHarmonics.ToWord(TxClarityHarmonics.ToChoice(word));
-            var timing = was == want ? TxChangeResult.Now : TxAudioConditioning.SetClarityHarmonics(high, want);
+            var timing = was == want ? AlreadyAsked(ClarityHarmonicsOf(high) == want) : TxAudioConditioning.SetClarityHarmonics(high, want);
             if (was != want) NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), Cl, high ? "high.harmonics" : "low.harmonics", was, want);
             Say(L("audio.clarity.harmonics_set", ("band", ClarityBandName(high)), ("harmonics", ClarityHarmonicsName(want))), SpeechSubject.TransmitClarity);
             SayAtUnkey(timing);
@@ -115,7 +125,8 @@ namespace JJFlexWpf
         public void CycleClarityHarmonics(bool high, string source)
         {
             var all = TxClarityHarmonics.All;
-            int at = Math.Max(0, all.ToList().IndexOf(ClarityHarmonicsOf(high)));
+            // From what was last asked for: two presses while keyed move two on.
+            int at = Math.Max(0, all.ToList().IndexOf(HarmonicsWord(ClarityAsked.Band(high))));
             SetClarityHarmonics(high, all[(at + 1) % all.Count], source);
         }
 
@@ -225,7 +236,8 @@ namespace JJFlexWpf
             if (offered == null) throw new ArgumentNullException(nameof(offered));
             using var owned = OwnTx(source);
             using var oneUtterance = OneUtterance();
-            var was = TxAudioConditioning.ClaritySetup;
+            // As last asked for: an "on" still waiting for the unkey is not Keep's to announce.
+            var was = ClarityAsked;
             var keep = TxClaritySetup.From(offered, enabled: true);
             var timing = TxAudioConditioning.SetClarityWhole(keep);
             NoiseSettingsJournal.Record(NoiseJournalKind.PresetApplied, TxSource(source), Cl, "suggestion",

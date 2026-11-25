@@ -100,6 +100,20 @@ namespace JJFlexWpf
             /// <summary>The before and after renders, level-matched and scaled for playing; null when there is no offer.</summary>
             public ChainAudition.MatchedPair? Pair { get; init; }
             public int Rate { get; init; }
+            /// <summary>Whether the operator's own take was rendered through the chain's twin (the guard's renders, and before and after when there is an offer).</summary>
+            public bool Rendered { get; init; }
+            /// <summary>
+            /// The live transmit side as it read when the take was rendered, or
+            /// null with no radio (repair 1, B2). The renders are at 48 kHz with
+            /// the whole chain running: when the live stream runs at another
+            /// rate, when the live chain stands aside (CW, the digital modes),
+            /// or when there is no live chain at all, the report says so.
+            /// </summary>
+            public AuditionLiveState? Live { get; init; }
+            /// <summary>The measured off-air take's radio as its header names it (nickname, else model, else serial); empty when not recorded.</summary>
+            public string TakeRadio { get; init; } = "";
+            /// <summary>When the measured off-air take was made, from its header; null when not recorded.</summary>
+            public DateTimeOffset? TakeMade { get; init; }
             /// <summary>Whether Keep would also switch JJ Clarity on (it is off now).</summary>
             public bool KeepSwitchesOn => Offer != null && !Current.Enabled;
             public bool CanKeep => Offer != null;
@@ -150,10 +164,19 @@ namespace JJFlexWpf
         {
             var current = (_sources.Current() ?? new TxClaritySetup()).Clone();
             string? directory = _sources.NewestOffAirTake();
-            string mode = "";
+            string mode = "", takeRadio = "";
+            DateTimeOffset? takeMade = null;
             if (directory != null)
             {
-                try { mode = TakeReader.Inspect(directory).Get("mode") ?? ""; }
+                try
+                {
+                    // The newest take may be another radio's or another day's:
+                    // its own header says whose and when, and the report says it.
+                    var header = TakeReader.Inspect(directory);
+                    mode = header.Get("mode") ?? "";
+                    takeRadio = FirstSaid(header.Get("nickname"), header.Get("model"), header.Get("serial"));
+                    if (DateTimeOffset.TryParse(header.Get("created-utc"), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var made)) takeMade = made;
+                }
                 catch (Exception) { mode = ""; }
             }
 
@@ -200,10 +223,12 @@ namespace JJFlexWpf
                 var after = renders.Sent(true, guarded.Proposed);
                 pair = ChainAudition.MatchPair(before, after, renders.SentLatencySamples, rate);
             }
-            System.Diagnostics.Trace.WriteLine(TraceLine(result, retained?.Kind ?? RetainedKind.None, refusal, offer));
+            System.Diagnostics.Trace.WriteLine(TraceLine(result, retained?.Kind ?? RetainedKind.None, refusal, offer)
+                + (renders == null ? "" : LiveTrace(renders.Live)));
             return new Outcome
             {
-                Result = result, Current = current, TakeMode = mode,
+                Result = result, Current = current, TakeMode = mode, TakeRadio = takeRadio, TakeMade = takeMade,
+                Rendered = renders != null, Live = renders?.Live,
                 Retained = retained?.Kind ?? RetainedKind.None,
                 RetainedName = retained == null ? "" : Path.GetFileNameWithoutExtension(retained.Path),
                 RenderRefusal = refusal, Offer = offer, Pair = pair, Rate = rate,
@@ -219,6 +244,17 @@ namespace JJFlexWpf
             + (r.Guard == null ? ", guard not run" : FormattableString.Invariant(
                 $", guard at the limiter's input: {r.Guard.Steps} steps, {(r.Guard.Withdrawn ? "withdrawn" : r.Guard.Reduced ? "reduced" : "as proposed")}, over full scale {r.Guard.OverFullScaleBefore} before and {r.Guard.OverFullScaleAfter} after, peak {r.Guard.PeakBeforeDbfs:F1} to {r.Guard.PeakAfterDbfs:F1} dBFS, ceiling {(r.Guard.CeilingDbfs is double c ? c.ToString("F1", CultureInfo.InvariantCulture) : "none")}"))
             + (offer == null ? ", nothing to keep" : ", offer " + offer.Proposed);
+
+        /// <summary>The live side for the trace line: facts only.</summary>
+        private static string LiveTrace(AuditionLiveState? live) => live == null
+            ? "; rendered at 48 kHz with no live chain"
+            : FormattableString.Invariant($"; rendered at 48 kHz, live rate {live.TransmitRateHz} Hz, live mode {live.TransmitMode}")
+                + (live.ChainStandsAside ? ", the live chain stands aside" : "");
+
+        private static string FirstSaid(params string?[] values) => values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim() ?? "";
+
+        /// <summary>A take's date and time as the report says it: the operator's own long date and short time.</summary>
+        internal static string WhenText(DateTimeOffset made) => made.ToLocalTime().ToString("f", CultureInfo.CurrentCulture);
 
         // ── The report: assembled sentences, every one a DRAFT PROSE key ──
 
@@ -255,6 +291,11 @@ namespace JJFlexWpf
 
             parts.Add(Lexicon.Get(r.Source == ClaritySuggestSource.RadioRecorderStandIn
                 ? "audio.clarity_suggest.source_radio_recorder" : "audio.clarity_suggest.source_off_air"));
+            // Which take that was: the newest one may be another radio's, or an
+            // older day's (repair 1, from Codex's note). Its own header's facts.
+            if (r.Source != ClaritySuggestSource.RadioRecorderStandIn && (o.TakeRadio.Length > 0 || o.TakeMade != null || o.TakeMode.Length > 0))
+                parts.Add(Lexicon.Get("audio.clarity_suggest.measured_take", ("radio", Fact(o.TakeRadio)), ("mode", Fact(o.TakeMode)),
+                    ("when", o.TakeMade is { } made ? WhenText(made) : Fact(null))));
             // What the radio was doing: the measurement is of the whole chain,
             // not of the voice alone (#262's honesty constraint).
             var radio = r.Radio ?? RadioProcessingFacts.Unknown;
@@ -285,6 +326,23 @@ namespace JJFlexWpf
                 parts.Add(o.RenderRefusal is { } refused && refused.UnavailableKey.Length > 0
                     ? Lexicon.Get("audio.clarity_suggest.cannot_render", ("reason", Lexicon.Get(refused.UnavailableKey, refused.UnavailableArgs.ToArray())))
                     : Lexicon.Get("audio.clarity_suggest.recording_needed"));
+            }
+
+            // What the renders are NOT (repair 1, B2): they are the whole chain
+            // at 48 kHz. Said whenever the guard judged on them, so with or
+            // without an offer: the live rate when it differs (the audition's
+            // own sentence), that the live chain stands aside in this mode, or
+            // that there is no live chain at all.
+            if (o.Rendered && r.Guard != null)
+            {
+                if (o.Live == null) parts.Add(Lexicon.Get("audio.clarity_suggest.no_live_chain"));
+                else
+                {
+                    if (o.Live is { TransmitRateHz: > 0 and not 48000 } other)
+                        parts.Add(Lexicon.Get("audio.audition.verdict.rendered_at_48k", ("rate", N(other.TransmitRateHz / 1000.0))));
+                    if (o.Live.ChainStandsAside)
+                        parts.Add(Lexicon.Get("audio.clarity_suggest.stands_aside", ("mode", Fact(o.Live.TransmitMode))));
+                }
             }
 
             if (o.CanKeep)

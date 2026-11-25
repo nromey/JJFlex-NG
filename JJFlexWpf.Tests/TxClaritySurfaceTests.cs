@@ -857,7 +857,7 @@ public sealed class TxClaritySurfaceTests
     private const int TakeRate = 8000;
 
     /// <summary>A synthetic off-air take shaped like the reference speech spectrum with its presence region moved; USB unless told otherwise. Generated here.</summary>
-    private static string OffAirTake(string root, string mode = "USB", double presenceDb = -10)
+    private static string OffAirTake(string root, string mode = "USB", double presenceDb = -10, Action<Dictionary<string, string>>? more = null)
     {
         string directory = Path.Combine(root, "take-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -889,6 +889,7 @@ public sealed class TxClaritySurfaceTests
                 ["processor"] = "True", ["processor-level"] = "50", ["compander"] = "False", ["compander-level"] = "30", ["mic-gain"] = "42",
                 ["render-scale"] = "1/32768; fixed; no normalization; no AGC", ["classifier"] = "noise-like",
             };
+            more?.Invoke(facts);
             foreach (var fact in facts) header.Write(fact.Key, fact.Value);
             header.Event("keying", new { Source = "radio-TransmitChange", Keyed = true, AtPair = 0 });
             header.Event("keying", new { Source = "radio-TransmitChange", Keyed = false, AtPair = samples });
@@ -919,6 +920,8 @@ public sealed class TxClaritySurfaceTests
         public TxNoiseSetup Chain = new();
         public string? Take;
         public float[]? Retained = Voice(0.3);
+        /// <summary>The live transmit side the twin reads; null is no radio.</summary>
+        public AuditionLiveState? Live;
         public int Loads;
         public FlowBench() => Directory.CreateDirectory(Root);
         public ClaritySuggestFlow Flow() => new(new ClaritySuggestFlow.Sources
@@ -927,7 +930,7 @@ public sealed class TxClaritySurfaceTests
             Retained = () => Retained == null ? null : new ClaritySuggestFlow.RetainedTake(Path.Combine(Root, "take-2026-11-24-230000.wav"), ClaritySuggestFlow.RetainedKind.RecordingsTake),
             Load = (_, _) => { Loads++; return Retained == null ? null : ((float[])Retained.Clone(), Rate); },
             Current = () => Current,
-            Twin = () => Twin(Chain, Ssb),
+            Twin = () => Twin(Chain, Ssb, () => Live),
         });
         public void Dispose() { try { Directory.Delete(Root, recursive: true); } catch (IOException) { } }
     }
@@ -969,8 +972,11 @@ public sealed class TxClaritySurfaceTests
         // The report says, in order: what was measured, what the radio was doing, each band, and that nothing has changed.
         var report = ClaritySuggestFlow.Report(o);
         Assert.Equal(Lexicon.Get("audio.clarity_suggest.source_off_air"), report[0]);
+        // Which take: its header names the radio by serial here, and no date, which is said as not recorded.
+        Assert.Equal(Lexicon.Get("audio.clarity_suggest.measured_take", ("radio", "test-radio"), ("mode", "USB"),
+            ("when", Lexicon.Get("audio.clarity_suggest.fact_unknown"))), report[1]);
         Assert.Equal(Lexicon.Get("audio.clarity_suggest.radio_was", ("processor", "True"), ("processor_level", "50"),
-            ("compander", "False"), ("compander_level", "30"), ("mic_gain", "42")), report[1]);
+            ("compander", "False"), ("compander_level", "30"), ("mic_gain", "42")), report[2]);
         Assert.Contains(report, s => s.StartsWith("WORDING PLACEHOLDER: DRAFT PROSE: Brightness: your voice is", StringComparison.Ordinal) && s.Contains("suggested"));
         Assert.Contains(Lexicon.Get("audio.clarity_suggest.can_keep_switches_on"), report);
         Assert.Contains(Lexicon.Get("audio.clarity_suggest.retained_recording", ("file", "take-2026-11-24-230000")), report);
@@ -1231,6 +1237,561 @@ public sealed class TxClaritySurfaceTests
         Assert.All(rows, r => Assert.True(string.IsNullOrEmpty(r.KeyDisplay)));
         Assert.DoesNotContain(KeyInventory.LayerCommands(KeyInventory.NoiseLayerContext),
             r => r.Description.Contains("Clarity", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Repair 1
+    // ════════════════════════════════════════════════════════════════════
+
+    // ── B1: the newest request wins, and a toggle or a "next" row steps from it ──
+
+    private static string AtUnkey => Lexicon.Get("audio.denoise.tx.at_unkey");
+
+    private static int WaitingEdits() => TxAudioConditioning.WaitingShapingEdits;
+
+    /// <summary>One on-or-off switch of the three shaping stages, as the controller offers it: its toggle, its explicit set, and how it reads once it has run.</summary>
+    private sealed record ShapingSwitch(string Name, Action<NoiseController> Toggle, Action<NoiseController, bool> Set, Func<Bridge, bool> Ran);
+
+    private static ShapingSwitch SwitchOf(string name) => name switch
+    {
+        "clarity" => new(name, n => n.ToggleClarity(Home), (n, on) => n.SetClarityOn(on, Home), b => b.Noise.ClarityOn && b.Cond.Clarity.Enabled),
+        "clarity high band" => new(name, n => n.ToggleClarityBand(true, Home), (n, on) => n.SetClarityBandOn(true, on, Home),
+            b => b.Noise.ClarityBandOn(true) && b.Cond.Clarity.Settings.High.Enabled),
+        "clarity low band" => new(name, n => n.ToggleClarityBand(false, Home), (n, on) => n.SetClarityBandOn(false, on, Home),
+            b => b.Noise.ClarityBandOn(false) && b.Cond.Clarity.Settings.Low.Enabled),
+        "compressor" => new(name, n => n.ToggleCompressor(Home), (n, on) => n.SetCompressorOn(on, Home), b => b.Noise.CompressorOn && b.Cond.Compressor.Settings.Enabled),
+        "limiter" => new(name, n => n.ToggleLimiter(Home), (n, on) => n.SetLimiterOn(on, Home), b => b.Noise.LimiterOn && b.Cond.Limiter.Settings.Enabled),
+        // The compressor's mode has no toggle of its own; an explicit pair is its test.
+        "compressor split band" => new(name, n => n.SetCompressorSplitBand(!TxCompressorModes.IsSplit(TxAudioConditioning.AskedShaping().Compressor.CompressorMode), Home),
+            (n, on) => n.SetCompressorSplitBand(on, Home), b => b.Noise.CompressorSplitBand && b.Cond.Compressor.Settings.SplitBand),
+        _ => throw new ArgumentException(name),
+    };
+
+    public static IEnumerable<object[]> Switches() =>
+        from name in new[] { "clarity", "clarity high band", "clarity low band", "compressor", "limiter", "compressor split band" }
+        from initial in new[] { false, true }
+        select new object[] { name, initial };
+
+    private static Bridge BridgeWith(ShapingSwitch s, bool initial)
+    {
+        var b = new Bridge();
+        try
+        {
+            s.Set(b.Noise, initial);
+            b.Unkey();
+            Assert.Equal(initial, s.Ran(b));
+            b.X.Keyed = true; b.X.Buffer();
+            b.F.Spoken.Clear();
+            return b;
+        }
+        catch { b.Dispose(); throw; }
+    }
+
+    [Theory]
+    [MemberData(nameof(Switches))]
+    public void Two_presses_of_a_toggle_while_keyed_end_where_they_began_and_three_end_the_other_way(string name, bool initial)
+    {
+        var s = SwitchOf(name);
+        using (var b = BridgeWith(s, initial))
+        {
+            s.Toggle(b.Noise);
+            Assert.Equal(initial, s.Ran(b));                 // held: nothing has run
+            s.Toggle(b.Noise);
+            b.Unkey();
+            Assert.Equal(initial, s.Ran(b));                 // two presses: back where it began
+            Assert.Equal(0, WaitingEdits());
+        }
+        using (var b = BridgeWith(s, initial))
+        {
+            s.Toggle(b.Noise); s.Toggle(b.Noise); s.Toggle(b.Noise);
+            b.Unkey();
+            Assert.Equal(!initial, s.Ran(b));
+        }
+        // The control: one press does change it, so the two-press result is the second press undoing the first.
+        using (var b = BridgeWith(s, initial))
+        {
+            s.Toggle(b.Noise);
+            b.Unkey();
+            Assert.Equal(!initial, s.Ran(b));
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(Switches))]
+    public void An_explicit_request_made_after_one_still_waiting_is_queued_behind_it_and_wins(string name, bool initial)
+    {
+        var s = SwitchOf(name);
+        using (var b = BridgeWith(s, initial))
+        {
+            s.Set(b.Noise, !initial);                        // waits for the unkey
+            s.Set(b.Noise, initial);                         // the newest request: it must be queued, not dropped as "already so"
+            Assert.Contains(AtUnkey, b.F.Spoken.Said[^1].Text);
+            b.Unkey();
+            Assert.Equal(initial, s.Ran(b));
+        }
+        // Asking again for what is already the newest request queues nothing more, and still says it waits.
+        using (var b = BridgeWith(s, initial))
+        {
+            s.Set(b.Noise, !initial);
+            int waiting = WaitingEdits();
+            Assert.Equal(1, waiting);
+            s.Set(b.Noise, !initial);
+            Assert.Equal(waiting, WaitingEdits());
+            Assert.Contains(AtUnkey, b.F.Spoken.Said[^1].Text);
+            b.Unkey();
+            Assert.Equal(!initial, s.Ran(b));
+        }
+        // And unkeyed, asking for what is in place says nothing about waiting.
+        using (var b = BridgeWith(s, initial))
+        {
+            b.Unkey();
+            b.F.Spoken.Clear();
+            s.Set(b.Noise, initial);
+            Assert.DoesNotContain(AtUnkey, b.F.Spoken.Said[^1].Text);
+            Assert.Equal(0, WaitingEdits());
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_next_harmonics_row_pressed_twice_while_keyed_moves_two_on_and_an_explicit_choice_after_a_waiting_one_wins(bool high)
+    {
+        string start = high ? TxClarityHarmonics.Even : TxClarityHarmonics.Both;   // a new Clarity's own
+        var all = TxClarityHarmonics.All.ToList();
+        string Then(int presses) => all[(all.IndexOf(start) + presses) % all.Count];
+        string Ran(Bridge b) => b.Noise.ClarityHarmonicsOf(high);
+        using (var b = new Bridge())
+        {
+            Assert.Equal(start, Ran(b));
+            b.X.Keyed = true; b.X.Buffer();
+            b.Noise.CycleClarityHarmonics(high, Home);
+            b.Noise.CycleClarityHarmonics(high, Home);
+            Assert.Equal(start, Ran(b));                     // held
+            b.Unkey();
+            Assert.Equal(Then(2), Ran(b));                   // two on, not one
+            Assert.Equal(TxClarityHarmonics.ToChoice(Then(2)), (high ? b.Cond.Clarity.Settings.High : b.Cond.Clarity.Settings.Low).Harmonics);
+        }
+        using (var b = new Bridge())
+        {
+            b.X.Keyed = true; b.X.Buffer();
+            for (int i = 0; i < all.Count; i++) b.Noise.CycleClarityHarmonics(high, Home);
+            b.Unkey();
+            Assert.Equal(start, Ran(b));                     // all the way round
+        }
+        using (var b = new Bridge())
+        {
+            b.X.Keyed = true; b.X.Buffer();
+            b.Noise.SetClarityHarmonics(high, Then(1), Home);
+            b.Noise.SetClarityHarmonics(high, start, Home);  // back to where it is: queued behind the first, not dropped
+            Assert.Contains(AtUnkey, b.F.Spoken.Said[^1].Text);
+            b.Unkey();
+            Assert.Equal(start, Ran(b));
+        }
+    }
+
+    [Fact]
+    public void A_toggle_and_a_next_row_pressed_after_a_waiting_preset_step_from_the_presets_values()
+    {
+        using var b = new Bridge();
+        // In place: the low band off, the high band's harmonics even. The preset "wide" has the low band on and the high band odd.
+        Assert.False(b.Noise.ClarityBandOn(false));
+        Assert.Equal(TxClarityHarmonics.Even, b.Noise.ClarityHarmonicsOf(true));
+        b.X.Keyed = true; b.X.Buffer();
+        b.Noise.LoadClarityPreset(ClarityPresets.Wide, Home);             // waits
+        b.Noise.ToggleClarityBand(false, Home);                           // from the preset's ON: off
+        b.Noise.CycleClarityHarmonics(true, Home);                        // from the preset's odd: both
+        Assert.Contains(Lexicon.Get("audio.clarity.band_off", ("band", NoiseController.ClarityBandName(false))), b.F.Spoken.Said[^2].Text);
+        Assert.Contains(Lexicon.Get("audio.clarity.harmonics_set", ("band", NoiseController.ClarityBandName(true)),
+            ("harmonics", NoiseController.ClarityHarmonicsName(TxClarityHarmonics.Both))), b.F.Spoken.Said[^1].Text);
+        b.Unkey();
+        var now = TxAudioConditioning.ClaritySetup;
+        Assert.False(now.LowBand.Enabled);                                // what was said is what landed
+        Assert.Equal(TxClarityHarmonics.Both, now.HighBand.Harmonics);
+        Assert.Equal((3000f, 9f, 30f), (now.HighBand.TuneHz, now.HighBand.DriveDb, now.HighBand.MixPercent));   // the preset did land, under them
+        Assert.Equal(120f, now.LowBand.TuneHz);
+        Assert.Equal(now.ToSettings(), b.Cond.Clarity.Settings);
+    }
+
+    [Fact]
+    public void A_toggle_pressed_after_a_waiting_whole_setup_steps_from_the_setups_value_on_every_whole_road()
+    {
+        // The controller's road (a radio's named setup): JJ Clarity off in place, on in the setup.
+        using (var l = new LayerBench(withGate: false))
+        {
+            var b = l.B;
+            b.X.Keyed = true; b.X.Buffer();
+            b.Noise.ApplyTransmitSetup("Bright", Home);                   // waits; it switches JJ Clarity on
+            b.Noise.ToggleClarity(Home);                                  // from the setup's ON: off
+            Assert.Contains(Lexicon.Get("audio.clarity.off"), b.F.Spoken.Said[^1].Text);
+            b.Unkey();
+            Assert.False(b.Noise.ClarityOn);
+            Assert.False(b.Cond.Clarity.Enabled);
+            Assert.Equal(35f, TxAudioConditioning.ClaritySetup.HighBand.MixPercent);   // the setup's bands did land
+            Assert.Equal(0, WaitingEdits());
+        }
+        // The owner's road (a microphone's setup, the old settings shape).
+        using (var b = new Bridge())
+        {
+            b.X.Keyed = true; b.X.Buffer();
+            TxAudioConditioning.ApplySetup(new TxNoiseSetup { Clarity = Bright(), Compressor = new TxCompressorSetup { Enabled = true } });
+            b.Noise.ToggleClarity(Home);
+            b.Noise.ToggleCompressor(Home);
+            b.Unkey();
+            Assert.False(b.Noise.ClarityOn);
+            Assert.False(b.Noise.CompressorOn);
+            Assert.Equal(35f, TxAudioConditioning.ClaritySetup.HighBand.MixPercent);
+        }
+        // The recommended state: JJ Clarity off, the limiter on as a new setup has it.
+        using (var b = new Bridge())
+        {
+            b.Noise.SetClarityOn(true, Home);
+            b.Noise.SetLimiterOn(false, Home);
+            b.Unkey();
+            b.X.Keyed = true; b.X.Buffer();
+            TxAudioConditioning.ResetToRecommended();
+            b.Noise.ToggleClarity(Home);                                  // from the recommended OFF: on
+            b.Noise.ToggleLimiter(Home);                                  // from the recommended ON: off
+            b.Unkey();
+            Assert.True(b.Noise.ClarityOn);
+            Assert.False(b.Noise.LimiterOn);
+        }
+    }
+
+    [Fact]
+    public void A_request_its_owner_withdrew_is_not_counted_and_a_waiting_put_back_is()
+    {
+        const string editor = "clarity editor";
+        // The editor asks for ON while keyed and is cancelled before the unkey: its request is gone, so a toggle
+        // pressed next steps from OFF, where JJ Clarity is and will stay.
+        using (var b = new Bridge())
+        {
+            var model = b.Noise.DynamicsEditor(editor);
+            b.X.Keyed = true; b.X.Buffer();
+            b.Noise.SetLimiterOn(true, Home);                                  // somebody else's, waiting first: it stays held
+            b.Noise.SetClarityOn(true, editor);
+            Assert.True(TxAudioConditioning.AskedShaping().Clarity.Enabled);   // counted while it waits
+            Assert.Equal(2, WaitingEdits());
+            TxDynamicsEditorDialog.Dismissed(model, kept: false);
+            Assert.True(b.X.Chain.HasDeferredChanges);                         // Home's request is still held
+            Assert.False(TxAudioConditioning.AskedShaping().Clarity.Enabled);  // the editor's was withdrawn: not counted
+            Assert.True(TxAudioConditioning.AskedShaping().Limiter.Enabled);   // Home's still is
+            Assert.Equal(1, WaitingEdits());
+            b.Noise.ToggleClarity(Home);
+            Assert.Contains(Lexicon.Get("audio.clarity.on"), b.F.Spoken.Said[^1].Text);
+            b.Unkey();
+            Assert.True(b.Noise.ClarityOn);
+            Assert.True(b.Noise.LimiterOn);
+            Assert.Equal(0, WaitingEdits());
+        }
+        // The editor's change LANDED, and it is cancelled while keyed: the put-back waits, and what it will take back
+        // counts as asked for.
+        using (var b = new Bridge())
+        {
+            var model = b.Noise.DynamicsEditor(editor);
+            b.Noise.SetClarityOn(true, editor);
+            b.Noise.SetCompressorOn(true, editor);
+            b.Unkey();
+            Assert.True(b.Noise.ClarityOn);
+            b.X.Keyed = true; b.X.Buffer();
+            Assert.True(TxDynamicsEditorDialog.Dismissed(model, kept: false));
+            Assert.True(b.Noise.ClarityOn);                                    // not back yet
+            Assert.False(TxAudioConditioning.AskedShaping().Clarity.Enabled);
+            Assert.False(TxAudioConditioning.AskedShaping().Compressor.Enabled);
+            b.Noise.ToggleClarity(Home);                                       // from OFF, where it is going: on
+            Assert.Contains(Lexicon.Get("audio.clarity.on"), b.F.Spoken.Said[^1].Text);
+            b.Unkey();
+            Assert.True(b.Noise.ClarityOn);
+            Assert.False(b.Noise.CompressorOn);                                // the put-back still took the compressor back
+        }
+        // The noise layer's Escape made while keyed: its put-back waits the same way.
+        using (var l = new LayerBench(withGate: false))
+        {
+            var b = l.B;
+            var snap = b.Noise.TakeSnapshot();
+            b.Noise.ApplyTransmitSetup("Bright", Layer);
+            b.Unkey();
+            Assert.True(l.ClarityOn);
+            b.X.Keyed = true; b.X.Buffer();
+            Assert.True(b.Noise.RestoreSnapshot(snap, Layer));
+            Assert.True(b.Noise.ClarityOn);                                    // not back yet
+            Assert.False(TxAudioConditioning.AskedShaping().Clarity.Enabled);
+            b.Noise.ToggleClarity(Home);
+            Assert.Contains(Lexicon.Get("audio.clarity.on"), b.F.Spoken.Said[^1].Text);
+            b.Unkey();
+            Assert.True(b.Noise.ClarityOn);
+            Assert.Equal(ClaritySettings.Default, TxAudioConditioning.ClaritySetup.ToSettings());   // the bands did go back
+            Assert.Equal(0, WaitingEdits());
+        }
+    }
+
+    [Fact]
+    public void A_lever_stepped_twice_behind_a_waiting_switch_moves_two_steps()
+    {
+        using var b = new Bridge();
+        var mix = Lever("high.mix");
+        var threshold = NoiseController.FindDynamicsLever(DynamicsLever.CompressorStage, "threshold")!;
+        double mixWas = b.Noise.DynamicsNumber(mix), thresholdWas = b.Noise.DynamicsNumber(threshold);
+        b.X.Keyed = true; b.X.Buffer();
+        // Nothing held: a lever is live, and each step starts from the last (the control).
+        b.Noise.AdjustDynamics(mix, +1, Home);
+        b.Noise.AdjustDynamics(mix, +1, Home);
+        Assert.Equal(mixWas + 2 * mix.Step, b.Noise.DynamicsNumber(mix));
+        // A switch is waiting: the levers wait behind it, and the second step starts from the first.
+        b.Noise.SetClarityOn(true, Home);
+        b.Noise.AdjustDynamics(mix, +1, Home);
+        b.Noise.AdjustDynamics(mix, +1, Home);
+        b.Noise.AdjustDynamics(threshold, -1, Home);
+        b.Noise.AdjustDynamics(threshold, -1, Home);
+        Assert.Equal(mixWas + 2 * mix.Step, b.Noise.DynamicsNumber(mix));       // held
+        b.Unkey();
+        Assert.Equal(mixWas + 4 * mix.Step, b.Noise.DynamicsNumber(mix));
+        Assert.Equal(thresholdWas - 2 * threshold.Step, b.Noise.DynamicsNumber(threshold));
+        Assert.Equal((float)(mixWas + 4 * mix.Step), b.Cond.Clarity.Settings.High.MixPercent);
+        Assert.Equal(0, WaitingEdits());
+    }
+
+    [Fact]
+    public void With_nothing_waiting_what_was_asked_for_is_what_is_in_place_and_reading_it_changes_nothing()
+    {
+        using var b = new Bridge();
+        b.Noise.SetClarityOn(true, Home);
+        b.Noise.SetCompressorOn(true, Home);
+        b.Unkey();
+        var before = TxAudioConditioning.CaptureSetup("");
+        var asked = TxAudioConditioning.AskedShaping();
+        Assert.True(new TxNoiseSetup { Compressor = asked.Compressor, Limiter = asked.Limiter, Clarity = asked.Clarity }
+            .SameContentAs(new TxNoiseSetup { Compressor = before.Compressor, Limiter = before.Limiter, Clarity = before.Clarity }));
+        // A copy: changing it changes nothing.
+        asked.Clarity.Enabled = false;
+        asked.Compressor.Enabled = false;
+        Assert.True(TxAudioConditioning.CaptureSetup("").SameContentAs(before));
+        // While keyed, a waiting request shows in what was asked for and not in what is in place.
+        b.X.Keyed = true; b.X.Buffer();
+        b.Noise.SetClarityOn(false, Home);
+        Assert.False(TxAudioConditioning.AskedShaping().Clarity.Enabled);
+        Assert.True(TxAudioConditioning.ClaritySetup.Enabled);
+        Assert.True(TxAudioConditioning.CaptureSetup("").SameContentAs(before));
+        b.Unkey();
+        Assert.False(TxAudioConditioning.ClaritySetup.Enabled);
+        Assert.Equal(0, WaitingEdits());
+    }
+
+    [Fact]
+    public void A_change_held_by_another_chain_is_not_counted_and_one_held_by_this_sessions_chain_is()
+    {
+        using var b = new Bridge();
+        var other = new TxNoiseChain(TxNoiseChainTests.Catalog()) { KeySource = () => true };
+        Assert.Equal(TxChangeTiming.AtUnkey, TxAudioConditioning.Ask(other, lever: false, () => { }, s => s.Clarity.Enabled = true).Timing);
+        Assert.False(TxAudioConditioning.AskedShaping().Clarity.Enabled);
+        Assert.Equal(0, WaitingEdits());
+        b.X.Keyed = true; b.X.Buffer();
+        Assert.Equal(TxChangeTiming.AtUnkey, TxAudioConditioning.Ask(b.X.Chain, lever: false, () => { }, s => s.Clarity.Enabled = true).Timing);
+        Assert.True(TxAudioConditioning.AskedShaping().Clarity.Enabled);
+        Assert.Equal(1, WaitingEdits());
+        // Not held (unkeyed, nothing ahead): the change ran, and nothing waits.
+        b.Unkey();
+        bool ran = false;
+        Assert.Equal(TxChangeTiming.Now, TxAudioConditioning.Ask(b.X.Chain, lever: false, () => ran = true, s => s.Clarity.Enabled = true).Timing);
+        Assert.True(ran);
+        Assert.Equal(0, WaitingEdits());
+    }
+
+    [Fact]
+    public void Keep_does_not_say_it_switched_clarity_on_when_on_was_already_asked_for_and_is_waiting()
+    {
+        using var b = new Bridge();
+        using var f = new FlowBench();
+        f.Take = OffAirTake(f.Root);
+        f.Current = TxAudioConditioning.CaptureClarity();
+        var o = f.Flow().Run(CancellationToken.None, null);
+        b.X.Keyed = true; b.X.Buffer();
+        b.Noise.SetClarityOn(true, Home);                                      // waits for the unkey
+        b.F.Spoken.Clear();
+        b.Noise.KeepClaritySuggestion(o.Offer!.Proposed, Dialogs.ClaritySuggestDialog.Source);
+        Assert.StartsWith(Lexicon.Get("audio.clarity_suggest.kept") + " ", b.F.Spoken.Said[0].Text);
+        Assert.DoesNotContain(Lexicon.Get("audio.clarity_suggest.kept_switched_on"), b.F.Spoken.Said[0].Text);
+        b.Unkey();
+        Assert.True(b.Noise.ClarityOn);
+        Assert.Equal(o.Offer.Proposed, TxAudioConditioning.ClaritySetup.ToSettings());
+    }
+
+    // ── B3: a reading is "now" only while audio is arriving ──
+
+    private static void StopAudio(TxAudioConditioner cond, int msAgo = 2000) =>
+        typeof(TxAudioConditioner).GetField("_lastBufferMs", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(cond, Environment.TickCount64 - msAgo);
+
+    private static void Tone(TxAudioConditioner cond, double amplitude = 0.25, int buffers = 10)
+    {
+        var tone = new float[960];
+        for (int i = 0; i < 480; i++) tone[2 * i] = tone[2 * i + 1] = (float)(amplitude * Math.Sin(2 * Math.PI * 1000 * i / 48000.0));
+        for (int k = 0; k < buffers; k++) cond.Process((float[])tone.Clone(), 960, 48000);
+    }
+
+    [Fact]
+    public void The_reading_is_a_figure_while_audio_arrives_withheld_once_it_stops_and_a_figure_again_when_it_resumes()
+    {
+        using var b = new Bridge();
+        b.Noise.SetClarityOn(true, Home);
+        b.Noise.SetCompressorOn(true, Home);
+        b.Noise.SetDynamics(NoiseController.FindDynamicsLever(DynamicsLever.CompressorStage, "threshold")!, -40, Home);
+        b.Noise.SetLimiterOn(true, Home);
+        b.Unkey();
+
+        // Audio arriving: a figure (the positive control).
+        Tone(b.Cond);
+        Assert.True(b.Cond.HasRecentAudio);
+        var live = TxAudioConditioning.ReadClarityNow();
+        Assert.True(live.Running);
+        Assert.InRange(live.AddingDbfs, -60f, 0f);
+        Assert.StartsWith(Lexicon.Get("audio.clarity.now", ("adding", Math.Round(live.AddingDbfs, 1).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))),
+            b.Noise.ClarityNowSentence());
+        var dynamics = TxAudioConditioning.ReadDynamicsNow();
+        Assert.True(dynamics.CompressorRunning);
+        Assert.True(dynamics.CompressorReductionDb > 0.5f, $"the compressor was not reducing ({dynamics.CompressorReductionDb} dB): the test proves nothing");
+        Assert.True(dynamics.LimiterRunning);
+
+        // The last buffer was two seconds ago and none has come since (the computer's audio was switched off, or its
+        // stream was lost). The stage still holds that buffer's figure; it is not "now".
+        StopAudio(b.Cond);
+        Assert.False(b.Cond.HasRecentAudio);
+        Assert.InRange(b.Cond.Clarity.AddingNowDbfs, -60f, 0f);            // the stale figure is still there to be misread
+        var stopped = TxAudioConditioning.ReadClarityNow();
+        Assert.False(stopped.Running);
+        Assert.Equal(-200f, stopped.AddingDbfs);
+        Assert.StartsWith(Lexicon.Get("audio.clarity.now_not_running"), b.Noise.ClarityNowSentence());
+        Assert.DoesNotContain(Lexicon.Get("audio.clarity.now", ("adding", Math.Round(live.AddingDbfs, 1).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))),
+            b.Noise.ClarityNowSentence());
+        var stoppedDynamics = TxAudioConditioning.ReadDynamicsNow();
+        Assert.False(stoppedDynamics.CompressorRunning);
+        Assert.Equal(0f, stoppedDynamics.CompressorReductionDb);
+        Assert.False(stoppedDynamics.LimiterRunning);
+        Assert.Equal(0f, stoppedDynamics.LimiterReductionDb);
+        Assert.StartsWith(Lexicon.Get("audio.compressor.now_not_running"), b.Noise.CompressorNowSentence());
+        // What was asked for is untouched: on is still on, in the intent and in the chain.
+        Assert.True(b.Noise.ClarityOn);
+        Assert.True(b.Cond.Clarity.Enabled);
+        Assert.True(b.Noise.CompressorOn);
+        Assert.True(b.Noise.LimiterOn);
+
+        // Audio again: a figure again.
+        Tone(b.Cond);
+        var resumed = TxAudioConditioning.ReadClarityNow();
+        Assert.True(resumed.Running);
+        Assert.InRange(resumed.AddingDbfs, -60f, 0f);
+        Assert.True(TxAudioConditioning.ReadDynamicsNow().CompressorRunning);
+    }
+
+    // ── B2: the suggest pass carries the live side its renders are not ──
+
+    private static AuditionLiveState Live(string mode, uint rate) =>
+        ChainAuditionTwin.LiveState(true, -40, false, LufsMeter.Floor, 8, mode) with { TransmitRateHz = rate };
+
+    [Fact]
+    public void The_pass_says_when_the_live_rate_differs_when_the_live_chain_stands_aside_and_when_there_is_none_and_still_offers()
+    {
+        using var b = new Bridge();
+        using var f = new FlowBench();
+        f.Take = OffAirTake(f.Root);
+        f.Current = TxAudioConditioning.CaptureClarity();
+        string at48k(string rate) => Lexicon.Get("audio.audition.verdict.rendered_at_48k", ("rate", rate));
+        string aside(string mode) => Lexicon.Get("audio.clarity_suggest.stands_aside", ("mode", mode));
+        string none = Lexicon.Get("audio.clarity_suggest.no_live_chain");
+        (ClaritySuggestFlow.Outcome Outcome, IReadOnlyList<string> Report) Run(AuditionLiveState? live)
+        {
+            f.Live = live;
+            var o = f.Flow().Run(CancellationToken.None, null);
+            return (o, ClaritySuggestFlow.Report(o));
+        }
+
+        // The control: a voice mode at 48 kHz. Nothing to qualify.
+        var usb = Run(Live("USB", 48000));
+        Assert.True(usb.Outcome.CanKeep);
+        Assert.True(usb.Outcome.Rendered);
+        Assert.Equal(48000u, usb.Outcome.Live!.TransmitRateHz);
+        Assert.DoesNotContain(usb.Report, s => s == at48k("48") || s == aside("USB") || s == none);
+
+        // The live stream at 16 kHz: the renders are still 48 kHz, and the report says so. Keep is still offered.
+        var slow = Run(Live("USB", 16000));
+        Assert.True(slow.Outcome.CanKeep);
+        Assert.Equal(16000u, slow.Outcome.Live!.TransmitRateHz);
+        Assert.Contains(at48k("16"), slow.Report);
+        Assert.DoesNotContain(aside("USB"), slow.Report);
+        Assert.NotEqual(usb.Report, slow.Report);
+        Assert.True(slow.Report.ToList().IndexOf(at48k("16")) < slow.Report.ToList().IndexOf(Lexicon.Get("audio.clarity_suggest.can_keep_switches_on")));
+
+        // CW: the live chain stands aside, so nothing here is what is being sent now. Said; Keep is still offered.
+        var cw = Run(Live("CW", 48000));
+        Assert.True(cw.Outcome.CanKeep);
+        Assert.True(cw.Outcome.Live!.ChainStandsAside);
+        Assert.Contains(aside("CW"), cw.Report);
+        Assert.NotEqual(usb.Report, cw.Report);
+        // Both at once.
+        var both = Run(Live("DIGU", 24000));
+        Assert.Contains(at48k("24"), both.Report);
+        Assert.Contains(aside("DIGU"), both.Report);
+
+        // No radio: no live chain at all. The pass still runs and offers; it says the renders are the saved settings alone.
+        var offline = Run(null);
+        Assert.True(offline.Outcome.CanKeep);
+        Assert.Null(offline.Outcome.Live);
+        Assert.Contains(none, offline.Report);
+        Assert.NotEqual(usb.Report, offline.Report);
+
+        // The guard withdrew (a hot voice): there is nothing to keep, and its judgement was still made on a 48 kHz render.
+        f.Retained = Voice(1.3);
+        f.Chain = new TxNoiseSetup { Limiter = new TxLimiterSetup { Enabled = true } };
+        var hot = Run(Live("USB", 16000));
+        Assert.False(hot.Outcome.CanKeep);
+        Assert.True(hot.Outcome.Result.Guard!.Withdrawn);
+        Assert.Contains(at48k("16"), hot.Report);
+        // With no recording of the operator's voice nothing was rendered, so there is nothing to qualify.
+        f.Retained = null;
+        var unrendered = Run(Live("CW", 16000));
+        Assert.False(unrendered.Outcome.Rendered);
+        Assert.DoesNotContain(unrendered.Report, s => s == at48k("16") || s == aside("CW") || s == none);
+
+        // Nothing was changed by any of it.
+        Assert.False(b.X.Chain.HasDeferredChanges);
+        Assert.False(TxAudioConditioning.ClaritySetup.Enabled);
+    }
+
+    [Fact]
+    public void The_twins_renders_keep_the_live_side_they_were_prepared_under()
+    {
+        var take = Voice(0.3);
+        var live = Live("CW", 16000);
+        var renders = Twin(new TxNoiseSetup(), Ssb, () => live).PrepareClarity(take, Rate, CancellationToken.None, null, out var refusal);
+        Assert.Null(refusal);
+        Assert.Same(live, renders!.Live);
+        Assert.Null(Twin(new TxNoiseSetup(), Ssb).PrepareClarity(take, Rate, CancellationToken.None, null, out _)!.Live);
+    }
+
+    [Fact]
+    public void The_report_names_the_measured_takes_radio_mode_and_date_from_its_own_header()
+    {
+        using var b = new Bridge();
+        using var f = new FlowBench();
+        var made = new DateTimeOffset(2026, 11, 20, 18, 30, 0, TimeSpan.Zero);
+        f.Take = OffAirTake(f.Root, more: facts =>
+        {
+            facts["nickname"] = "Shack radio"; facts["model"] = "FLEX-8600";
+            facts["created-utc"] = made.ToString("O");
+        });
+        f.Current = TxAudioConditioning.CaptureClarity();
+        var o = f.Flow().Run(CancellationToken.None, null);
+        Assert.Equal("Shack radio", o.TakeRadio);                              // the nickname first
+        Assert.Equal(made, o.TakeMade);
+        var report = ClaritySuggestFlow.Report(o);
+        Assert.Equal(Lexicon.Get("audio.clarity_suggest.source_off_air"), report[0]);
+        Assert.Equal(Lexicon.Get("audio.clarity_suggest.measured_take", ("radio", "Shack radio"), ("mode", "USB"),
+            ("when", ClaritySuggestFlow.WhenText(made))), report[1]);
+        // With no nickname, the model; and a refusal says nothing of the kind.
+        f.Take = OffAirTake(f.Root, more: facts => facts["model"] = "FLEX-6300");
+        Assert.Equal("FLEX-6300", f.Flow().Run(CancellationToken.None, null).TakeRadio);
+        f.Take = OffAirTake(f.Root, mode: "AM");
+        var refused = ClaritySuggestFlow.Report(f.Flow().Run(CancellationToken.None, null));
+        Assert.Equal(2, refused.Count);                                        // why, and that nothing has changed
     }
 
     private static string RepoRoot()

@@ -3187,6 +3187,10 @@ namespace Radios.Tests
                 "audio.clarity_suggest.refused.passband_holds_no_band",
                 "audio.clarity_suggest.refused.no_transmit_filter",
                 "audio.clarity_suggest.source_off_air",
+                // Track J repair 1 (B2, and the take's own facts): three more drafts.
+                "audio.clarity_suggest.measured_take",
+                "audio.clarity_suggest.stands_aside",
+                "audio.clarity_suggest.no_live_chain",
                 "audio.clarity_suggest.source_radio_recorder",
                 "audio.clarity_suggest.fact_unknown",
                 "audio.clarity_suggest.radio_was",

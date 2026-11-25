@@ -1530,11 +1530,22 @@ namespace JJFlexWpf
             var spectralCopy = spectral?.Clone();
             var neuralCopy = neural?.Clone();
             var gateCopy = gate?.Clone();
-            return chain.RunOrDefer(() =>
+            // Track J repair 1 (B1): while it waits, what it does to the
+            // compressor, the limiter and JJ Clarity counts as asked for, so a
+            // toggle pressed after a waiting setup or preset steps from the
+            // setup's value. The same edits the stages are staged with.
+            Action<TxShaping>? asked = null;
+            if (stages != null)
+            {
+                var dynamics = TxAudioConditioning.DynamicsEdit(compCopy, limiterCopy);
+                var clarity = TxAudioConditioning.ClarityEdit(clarityCopy);
+                asked = s => { dynamics(s); clarity(s); };
+            }
+            return TxAudioConditioning.Ask(chain, lever: false, () =>
             {
                 if (slots) chain.ApplySlotsNow(spectralCopy, neuralCopy);
                 ApplyGateAndStages(gateCopy);
-            });
+            }, asked);
         }
 
         /// <summary>Whether the equaliser, the de-esser and the order in place are a setup's (compared through the record's own serialized form, so a field added later is compared too).</summary>
