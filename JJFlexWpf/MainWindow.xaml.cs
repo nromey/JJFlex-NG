@@ -1462,7 +1462,7 @@ public partial class MainWindow : UserControl
             else
             {
                 Tracing.TraceLine($"UpdateStatus error: {ex.Message}", TraceLevel.Error);
-                _powerOffCause = Radios.PowerOffStatus.Cause.StatusUnreadable;   // #564
+                _powerOffCauses.Once(Radios.PowerOffStatus.Cause.StatusUnreadable);   // #564
                 PowerNowOffInternal();
             }
         }
@@ -4682,6 +4682,7 @@ public partial class MainWindow : UserControl
             RigControl.ConnectedEvent -= ConnectedEventHandler;
         }
         UnwireDropHandler();
+        _powerOffCauses.Boundary();   // #564: this connection's teardown is complete
 
         FreqOut.Clear();
         _comboControls.Clear();
@@ -6106,10 +6107,12 @@ public partial class MainWindow : UserControl
 
     // ── Power On/Off ──────────────────────────────────────
 
-    /// <summary>Why the next <see cref="PowerNowOffInternal"/> runs, set by the
-    /// caller that knows (#564); read and reset there. A power-off notice that
-    /// is not a profile import's is the command loop ending.</summary>
-    private Radios.PowerOffStatus.Cause _powerOffCause = Radios.PowerOffStatus.Cause.Disconnected;
+    /// <summary>Why a <see cref="PowerNowOffInternal"/> runs, set by the caller
+    /// that knows (#564) and taken there. A confirmed restart is held for its
+    /// own connection's teardown notices (a local restart raises two), until
+    /// that teardown completes (UnwireRadioEvents) or the radio comes back on
+    /// (PowerNowOn); a notice with no cause is the command loop ending.</summary>
+    private readonly Radios.PowerOffStatus.CauseLatch _powerOffCauses = new();
 
     /// <summary>The rig the live push-to-talk controller was built for (#901).</summary>
     private FlexBase? _pttControllerRig;
@@ -6198,6 +6201,7 @@ public partial class MainWindow : UserControl
         // from a first connect.
         bool wasOff = !_radioPowerOn;
         _radioPowerOn = true;
+        _powerOffCauses.Boundary();   // #564: the radio is back on; no earlier cause applies
         Tracing.TraceLine($"MainWindow PowerNowOn wasOff={wasOff}", TraceLevel.Info);
         if (wasOff && RigControl != null)
         {
@@ -6814,8 +6818,7 @@ public partial class MainWindow : UserControl
         }
 
         // #564: say what is known about why, not "power off" for every cause.
-        var powerOffCause = importing ? Radios.PowerOffStatus.Cause.ProfileImport : _powerOffCause;
-        _powerOffCause = Radios.PowerOffStatus.Cause.Disconnected;
+        var powerOffCause = _powerOffCauses.Take(RigControl, importing);
         Tracing.TraceLine("MainWindow PowerNowOff: cause " + powerOffCause, TraceLevel.Info);
         if (!_isClosing)
         {
@@ -9218,8 +9221,10 @@ public partial class MainWindow : UserControl
             Dispatcher.Invoke(powerNowOff);
             return;
         }
-        // #564: its callers are the confirmed restart routes.
-        _powerOffCause = Radios.PowerOffStatus.Cause.Restart;
+        // #564: its callers are the confirmed restart routes. The restart is
+        // held for this connection: a local restart's disconnect ends the
+        // command loop, whose own power-off notice follows this one.
+        _powerOffCauses.RestartConfirmed(RigControl);
         PowerNowOffInternal();
     }
 
