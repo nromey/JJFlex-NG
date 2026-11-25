@@ -99,6 +99,18 @@ public sealed class CallsignCheckSettingTests
         string dialog = File.ReadAllText(Path.Combine(repo, "JJFlexWpf", "Dialogs", "SettingsDialog.CallsignCheck.cs"));
         Assert.Contains("RequireCallsignCheckbox.IsChecked = _audioConfig.RequireCallsignToTransmit;", dialog);
         Assert.Contains("_audioConfig.RequireCallsignToTransmit = NewerCallsignCheck(", dialog);
+        // Repair 2: Apply is a commit. Once SettingsApplied has persisted it, in
+        // the one method Apply and OK share, the baseline becomes the committed value.
+        int commitAll = settingsMain.IndexOf("private bool ApplyAllSettings(bool closing)", System.StringComparison.Ordinal);
+        int persisted = settingsMain.IndexOf("SettingsApplied?.Invoke();", commitAll, System.StringComparison.Ordinal);
+        int committed = settingsMain.IndexOf("CallsignCheckCommitted();", commitAll, System.StringComparison.Ordinal);
+        int done = settingsMain.IndexOf("return true;", commitAll, System.StringComparison.Ordinal);
+        Assert.True(commitAll > 0 && persisted > commitAll && committed > persisted && done > committed,
+            "the callsign check's baseline does not advance after the commit in ApplyAllSettings");
+        Assert.True(settingsMain.IndexOf("ApplyAllSettings(closing: false);", System.StringComparison.Ordinal) > 0, "Apply no longer commits through ApplyAllSettings");
+        Assert.True(settingsMain.IndexOf("ApplyAllSettings(closing: true)", System.StringComparison.Ordinal) > 0, "OK no longer commits through ApplyAllSettings");
+        Assert.Contains("_callsignCheckLoaded = _audioConfig.RequireCallsignToTransmit;", dialog);
+        Assert.Contains("RequireCallsignCheckbox.IsChecked = _callsignCheckLoaded;", dialog);
         // Its name and its Ctrl+F1 text are set, from the Lexicon.
         Assert.Contains("AutomationProperties.SetName(RequireCallsignCheckbox,", dialog);
         Assert.Contains("JJFlexHelp.SetText(RequireCallsignCheckbox,", dialog);

@@ -1882,6 +1882,7 @@ namespace JJFlexWpf.Dialogs
             if (licenseNote != null) failed.Add(licenseNote);
 
             SettingsApplied?.Invoke();
+            CallsignCheckCommitted();   // #1306 repair 2: Apply is a commit; see SettingsDialog.CallsignCheck.cs
 
             // The tiers work, Track C repair 1 (Codex's check, B2): a saved
             // change to this radio's connection choice changes "Policy as it

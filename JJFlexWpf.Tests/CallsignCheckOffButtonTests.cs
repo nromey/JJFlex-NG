@@ -204,7 +204,7 @@ public sealed class CallsignCheckOffButtonTests : IDisposable
                 Assert.False(shared.RequireCallsignToTransmit);
                 Assert.True(box.IsChecked);                              // the open checkbox is stale: that is the hazard
 
-                SettingsOk(settings, shared, root);
+                SettingsCommit(settings, shared, root);
             });
             Assert.False(FlexBase.CallsignCheckOn);
             Assert.False(shared.RequireCallsignToTransmit);
@@ -235,7 +235,7 @@ public sealed class CallsignCheckOffButtonTests : IDisposable
             var (settings, box) = Settings(shared);
             Assert.Equal(opened, box.IsChecked);
             box.IsChecked = chosen;
-            SettingsOk(settings, shared, root);
+            SettingsCommit(settings, shared, root);
         });
         Assert.Equal(chosen, FlexBase.CallsignCheckOn);
         Assert.Equal(chosen, shared.RequireCallsignToTransmit);
@@ -246,6 +246,90 @@ public sealed class CallsignCheckOffButtonTests : IDisposable
         Assert.True(SettingsDialog.NewerCallsignCheck(loaded: false, ticked: true, liveNow: false));
         Assert.False(SettingsDialog.NewerCallsignCheck(loaded: true, ticked: true, liveNow: false));
         Assert.True(SettingsDialog.NewerCallsignCheck(loaded: false, ticked: false, liveNow: true));
+    }
+
+    /// <summary>
+    /// Repair 2 (Codex's recheck, B1): Apply commits and keeps Settings open. A
+    /// change made after an Apply is measured against what that Apply committed,
+    /// not against what Settings opened on, so changing the box back to its
+    /// opening value is a real choice and OK applies it, either way.
+    /// </summary>
+    [Theory]
+    [InlineData(false, true, false)]    // opened off, tick and Apply, untick and OK
+    [InlineData(true, false, true)]     // opened on, untick and Apply, tick and OK
+    public void A_change_after_Apply_is_what_OK_applies_even_back_to_the_opening_value(bool opened, bool applied, bool final)
+    {
+        string root = RadioConfig.AppDataRoot;
+        var shared = AudioOutputConfig.Load(root);
+        shared.RequireCallsignToTransmit = opened;
+        AudioOutputConfig.PersistUserScope(shared, root);
+        FlexBase.CallsignCheckOn = opened;
+        Run(_ =>
+        {
+            var (settings, box) = Settings(shared);
+            Assert.Equal(opened, box.IsChecked);
+            box.IsChecked = applied;
+            SettingsCommit(settings, shared, root);                     // Apply: the window stays open
+            Assert.Equal(applied, FlexBase.CallsignCheckOn);             // positive control: Apply took
+            Assert.Equal(applied, shared.RequireCallsignToTransmit);
+            Assert.Equal(applied, AudioOutputConfig.Load(root).RequireCallsignToTransmit);
+            Assert.Equal(applied, box.IsChecked);
+
+            box.IsChecked = final;                                       // back to the opening value
+            SettingsCommit(settings, shared, root);                     // OK
+            Assert.Equal(final, box.IsChecked);
+        });
+        Assert.Equal(final, FlexBase.CallsignCheckOn);
+        Assert.Equal(final, shared.RequireCallsignToTransmit);
+        Assert.Equal(final, AudioOutputConfig.Load(root).RequireCallsignToTransmit);
+    }
+
+    /// <summary>
+    /// Repair 2 (Codex's recheck): Settings opened off, ticked and Applied, then
+    /// Audio, Audio Workshop, Check your audio and its button, then back to
+    /// Settings' OK with the box untouched since the Apply. The Apply was the
+    /// last commit, so the untouched box says nothing new and the button's
+    /// turn-off stands, live, in the shared settings and in the root file.
+    /// </summary>
+    [Fact]
+    public void After_an_Apply_the_button_still_wins_over_an_untouched_OK()
+    {
+        string root = RadioConfig.AppDataRoot;
+        var shared = AudioOutputConfig.Load(root);
+        shared.RequireCallsignToTransmit = false;
+        AudioOutputConfig.PersistUserScope(shared, root);
+        FlexBase.CallsignCheckOn = false;
+        var sourceWas = AudioWorkshopDialog.AudioConfigSource;
+        AudioWorkshopDialog.AudioConfigSource = () => shared;
+        try
+        {
+            Run(rig =>
+            {
+                var (settings, box) = Settings(shared);
+                Assert.False(box.IsChecked);
+                box.IsChecked = true;
+                SettingsCommit(settings, shared, root);                 // Apply
+                Assert.True(FlexBase.CallsignCheckOn);                   // positive control: Apply turned it on
+                Assert.True(AudioOutputConfig.Load(root).RequireCallsignToTransmit);
+
+                var (dialog, button) = Dialog(rig);
+                Assert.True(Refuse(dialog));
+                button.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                Assert.False(FlexBase.CallsignCheckOn);
+                Assert.False(shared.RequireCallsignToTransmit);
+                Assert.True(box.IsChecked);                              // the open checkbox is stale: that is the hazard
+
+                SettingsCommit(settings, shared, root);                 // OK, box untouched since the Apply
+                Assert.False(box.IsChecked);                             // and it now shows what was committed
+            });
+            Assert.False(FlexBase.CallsignCheckOn);
+            Assert.False(shared.RequireCallsignToTransmit);
+            Assert.False(AudioOutputConfig.Load(root).RequireCallsignToTransmit);
+        }
+        finally
+        {
+            AudioWorkshopDialog.AudioConfigSource = sourceWas;
+        }
     }
 
     [Fact]
@@ -304,17 +388,21 @@ public sealed class CallsignCheckOffButtonTests : IDisposable
     }
 
     /// <summary>
-    /// Settings' OK for this field, by its own steps: its save into the shared
-    /// settings (<c>SaveCallsignCheck</c>, which SaveSettings calls), the line of
+    /// Settings' commit for this field, which Apply and OK share
+    /// (ApplyAllSettings), by its own steps: its save into the shared settings
+    /// (<c>SaveCallsignCheck</c>, which SaveSettings calls), the line of
     /// <see cref="AudioOutputConfig.Apply"/> that makes it live (Apply itself
     /// starts sound engines, so only its line is replayed; the source test pins
-    /// that line inside Apply), and NativeMenuBar's SettingsApplied persist.
+    /// that line inside Apply), NativeMenuBar's SettingsApplied persist, and then
+    /// <c>CallsignCheckCommitted</c> (repair 2; the source test pins it after
+    /// SettingsApplied in ApplyAllSettings).
     /// </summary>
-    private static void SettingsOk(SettingsDialog settings, AudioOutputConfig shared, string root)
+    private static void SettingsCommit(SettingsDialog settings, AudioOutputConfig shared, string root)
     {
         typeof(SettingsDialog).GetMethod("SaveCallsignCheck", Private)!.Invoke(settings, null);
         FlexBase.CallsignCheckOn = shared.RequireCallsignToTransmit;
         AudioOutputConfig.PersistUserScope(shared, root);
+        typeof(SettingsDialog).GetMethod("CallsignCheckCommitted", Private)!.Invoke(settings, null);
     }
 
     private static void Run(Action<FlexBase> body)

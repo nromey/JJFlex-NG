@@ -25,10 +25,20 @@ namespace JJFlexWpf.Dialogs
     /// <para>Chosen over making the open checkbox follow the change, which would
     /// need every writer to find and update an open Settings window, and would
     /// move a control under the operator while they might be on it.</para>
+    /// <para><b>"What it loaded" means the last commit, not the opening
+    /// (repair 2, Codex's recheck).</b> Apply commits and keeps Settings open, so
+    /// a baseline taken only at opening goes stale at the first Apply: a later
+    /// change back to the opening value read as "unchanged" and was lost, and a
+    /// box left at its applied value read as "changed" forever and undid a later
+    /// turn-off from the button. So once a commit has really happened (after
+    /// SettingsApplied, in ApplyAllSettings, for Apply and OK alike), the
+    /// baseline becomes the committed value and the checkbox shows it: the
+    /// operator has just asked for a commit, so showing what was committed is
+    /// the answer to that, not a control moving on its own.</para>
     /// </remarks>
     public partial class SettingsDialog
     {
-        /// <summary>The checkbox's value when Settings opened.</summary>
+        /// <summary>The value last committed: at opening, then after each successful Apply or OK.</summary>
         private bool _callsignCheckLoaded;
 
         /// <summary>Fill the checkbox, its name and its Ctrl+F1 text, and remember what it opened on.</summary>
@@ -44,7 +54,7 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// At OK: into the audio settings, made live by <c>_audioConfig.Apply()</c>
+        /// At Apply and OK: into the audio settings, made live by <c>_audioConfig.Apply()</c>
         /// and kept in the root file by PersistUserScope, as the newer choice.
         /// </summary>
         private void SaveCallsignCheck()
@@ -54,7 +64,18 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// The checkbox when the operator changed it in this Settings session;
+        /// After a commit that really happened (ApplyAllSettings, once
+        /// SettingsApplied has persisted it): the committed value becomes the
+        /// baseline, and the checkbox shows it.
+        /// </summary>
+        private void CallsignCheckCommitted()
+        {
+            _callsignCheckLoaded = _audioConfig.RequireCallsignToTransmit;
+            RequireCallsignCheckbox.IsChecked = _callsignCheckLoaded;
+        }
+
+        /// <summary>
+        /// The checkbox when the operator changed it since the last commit;
         /// otherwise the switch as it stands now, so a change made elsewhere
         /// while Settings was open is not undone.
         /// </summary>
