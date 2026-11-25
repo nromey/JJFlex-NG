@@ -2,6 +2,8 @@ using JJFlexWpf.Dialogs;
 using Radios;
 using Xunit;
 using Shown = JJFlexWpf.Dialogs.SettingsDialog.PortForwardShown;
+using Words = JJFlexWpf.Dialogs.SettingsDialog.PortFieldWords;
+using Fill = JJFlexWpf.Dialogs.SettingsDialog.PortBoxFillValues;
 
 namespace JJFlexWpf.Tests;
 
@@ -193,6 +195,213 @@ public sealed class PortForwardShownTests
             curEnabled: true, curTcp: -1, curUdp: -1));
         // And the comparison still sees a real edit in this state.
         Assert.True(SettingsDialog.PortForwardChanged(shown, true, 25678, 25678, true, -1, -1));
+    }
+
+    // Repair round 2: a number this program put in a port box (no radio;
+    // 4992 when forwarding's ports are not known; the TCP number copied into
+    // the UDP box when the UDP port is not known) is labelled and named as a
+    // suggestion, with a description heard on focus. A number the radio
+    // reported keeps today's label and name, with no description.
+
+    private static Words WordsAfterFill(bool enabled, int tcp, int udp)
+    {
+        var fill = SettingsDialog.PortBoxFill(enabled, tcp, udp);
+        return SettingsDialog.PortFieldPresentation(fill.Separate,
+            SettingsDialog.PortBoxReported(tcp, fill.TcpText),
+            SettingsDialog.PortBoxReported(udp, fill.UdpText));
+    }
+
+    private static string L(string key) => Lexicon.Get(key);
+
+    private static void AssertBothSuggestedShared(Words w)
+    {
+        Assert.Equal(L("settings.network.port_label_shared_suggested"), w.TcpLabel);
+        Assert.Equal(L("settings.network.port_name_shared_suggested"), w.TcpName);
+        Assert.Equal(L("settings.network.port_help_suggested"), w.TcpHelp);
+        Assert.Equal(L("settings.network.port_label_udp_suggested"), w.UdpLabel);
+        Assert.Equal(L("settings.network.port_name_udp_suggested"), w.UdpName);
+        Assert.Equal(L("settings.network.port_help_suggested"), w.UdpHelp);
+        AssertNotTodaysReportedWords(w);
+    }
+
+    private static void AssertTodaysSharedWords(Words w)
+    {
+        Assert.Equal(L("settings.network.port_label_shared"), w.TcpLabel);
+        Assert.Equal(L("settings.network.port_name_shared"), w.TcpName);
+        Assert.Equal(string.Empty, w.TcpHelp);
+        Assert.Equal(L("settings.network.port_label_udp"), w.UdpLabel);
+        Assert.Equal(L("settings.network.port_name_udp"), w.UdpName);
+        Assert.Equal(string.Empty, w.UdpHelp);
+    }
+
+    /// <summary>Neither box carries a reported number's label or name, and both describe themselves.</summary>
+    private static void AssertNotTodaysReportedWords(Words w)
+    {
+        Assert.NotEqual(L("settings.network.port_label_shared"), w.TcpLabel);
+        Assert.NotEqual(L("settings.network.port_label_tcp_only"), w.TcpLabel);
+        Assert.NotEqual(L("settings.network.port_name_shared"), w.TcpName);
+        Assert.NotEqual(L("settings.network.port_label_udp"), w.UdpLabel);
+        Assert.NotEqual(L("settings.network.port_name_udp"), w.UdpName);
+        Assert.False(string.IsNullOrWhiteSpace(w.TcpHelp));
+        Assert.False(string.IsNullOrWhiteSpace(w.UdpHelp));
+    }
+
+    [Theory]
+    [InlineData(true, -1, -1)]
+    [InlineData(true, 0, 0)]
+    [InlineData(false, -1, -1)]
+    [InlineData(false, 0, 0)]
+    public void A_4992_the_radio_did_not_report_is_labelled_and_named_as_a_suggestion(bool enabled, int tcp, int udp)
+    {
+        AssertWindowless();
+        // The values are unchanged by this repair: 4992 in both, shared.
+        Assert.Equal(new Fill("4992", "4992", false), SettingsDialog.PortBoxFill(enabled, tcp, udp));
+        AssertBothSuggestedShared(WordsAfterFill(enabled, tcp, udp));
+    }
+
+    [Fact]
+    public void With_no_radio_connected_the_4992s_are_suggestions()
+    {
+        AssertWindowless();
+        // The first load and the disconnected refill show 4992 in both boxes
+        // and record no reported port (-1, -1).
+        AssertBothSuggestedShared(SettingsDialog.PortFieldPresentation(false,
+            SettingsDialog.PortBoxReported(-1, "4992"), SettingsDialog.PortBoxReported(-1, "4992")));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    public void A_udp_box_copying_a_reported_tcp_number_says_the_udp_number_is_a_suggestion(int udp)
+    {
+        AssertWindowless();
+        Assert.Equal(new Fill("25678", "25678", false), SettingsDialog.PortBoxFill(true, 25678, udp));
+        var w = WordsAfterFill(true, 25678, udp);
+        Assert.Equal(L("settings.network.port_label_shared_udp_suggested"), w.TcpLabel);
+        Assert.Equal(L("settings.network.port_name_shared_udp_suggested"), w.TcpName);
+        Assert.Equal(L("settings.network.port_help_udp_copied"), w.TcpHelp);
+        Assert.Equal(L("settings.network.port_label_udp_suggested"), w.UdpLabel);
+        Assert.Equal(L("settings.network.port_name_udp_suggested"), w.UdpName);
+        Assert.Equal(L("settings.network.port_help_udp_copied"), w.UdpHelp);
+        AssertNotTodaysReportedWords(w);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_reported_shared_port_keeps_todays_label_and_name(bool enabled)
+    {
+        AssertWindowless();
+        AssertTodaysSharedWords(WordsAfterFill(enabled, 25678, 25678));
+    }
+
+    [Fact]
+    public void Reported_separate_ports_keep_todays_labels_and_names()
+    {
+        AssertWindowless();
+        Assert.Equal(new Fill("25678", "25679", true), SettingsDialog.PortBoxFill(true, 25678, 25679));
+        var w = WordsAfterFill(true, 25678, 25679);
+        Assert.Equal(L("settings.network.port_label_tcp_only"), w.TcpLabel);
+        Assert.Equal(L("settings.network.port_name_shared"), w.TcpName);
+        Assert.Equal(string.Empty, w.TcpHelp);
+        Assert.Equal(L("settings.network.port_label_udp"), w.UdpLabel);
+        Assert.Equal(L("settings.network.port_name_udp"), w.UdpName);
+        Assert.Equal(string.Empty, w.UdpHelp);
+    }
+
+    [Fact]
+    public void A_refill_that_reports_the_ports_puts_todays_words_back_and_a_later_unknown_takes_them_away()
+    {
+        AssertWindowless();
+        // Each refill works the words out afresh from what it reports: nothing
+        // from the previous fill sticks.
+        AssertBothSuggestedShared(WordsAfterFill(true, -1, -1));
+        AssertTodaysSharedWords(WordsAfterFill(true, 25678, 25678));
+        AssertBothSuggestedShared(WordsAfterFill(true, 0, 0));
+        AssertTodaysSharedWords(WordsAfterFill(true, 25678, 25678));
+    }
+
+    [Fact]
+    public void Ticking_separate_ports_over_a_copied_udp_number_keeps_it_a_suggestion()
+    {
+        AssertWindowless();
+        // Filled with TCP 25678 reported and UDP not known: the UDP box holds
+        // 25678. The operator ticks "Use different TCP and UDP ports".
+        var w = SettingsDialog.PortFieldPresentation(true,
+            SettingsDialog.PortBoxReported(25678, "25678"), SettingsDialog.PortBoxReported(-1, "25678"));
+        Assert.Equal(L("settings.network.port_label_tcp_only"), w.TcpLabel);
+        Assert.Equal(string.Empty, w.TcpHelp);
+        Assert.Equal(L("settings.network.port_label_udp_suggested"), w.UdpLabel);
+        Assert.Equal(L("settings.network.port_help_udp_copied"), w.UdpHelp);
+        // And a 4992 TCP box shown separately is a suggested TCP port.
+        var unknown = SettingsDialog.PortFieldPresentation(true,
+            SettingsDialog.PortBoxReported(-1, "4992"), SettingsDialog.PortBoxReported(-1, "4992"));
+        Assert.Equal(L("settings.network.port_label_tcp_only_suggested"), unknown.TcpLabel);
+        Assert.Equal(L("settings.network.port_name_tcp_only_suggested"), unknown.TcpName);
+        Assert.Equal(L("settings.network.port_help_suggested"), unknown.TcpHelp);
+    }
+
+    [Fact]
+    public void Unticking_separate_ports_copies_tcp_into_udp_and_the_udp_number_becomes_a_suggestion()
+    {
+        AssertWindowless();
+        // Filled with 25678 and 25679 reported; unticking copies 25678 into
+        // the UDP box, which is no longer the radio's UDP port.
+        var w = SettingsDialog.PortFieldPresentation(false,
+            SettingsDialog.PortBoxReported(25678, "25678"), SettingsDialog.PortBoxReported(25679, "25678"));
+        Assert.Equal(L("settings.network.port_label_shared_udp_suggested"), w.TcpLabel);
+        Assert.Equal(L("settings.network.port_label_udp_suggested"), w.UdpLabel);
+    }
+
+    [Theory]
+    [InlineData(25678, "25678", true)]
+    [InlineData(25678, "25679", false)]
+    [InlineData(-1, "4992", false)]
+    [InlineData(0, "0", false)]
+    [InlineData(25678, "", false)]
+    [InlineData(25678, null, false)]
+    public void A_box_is_reported_only_when_it_holds_the_radios_own_positive_number(int reported, string? box, bool expected)
+    {
+        AssertWindowless();
+        Assert.Equal(expected, SettingsDialog.PortBoxReported(reported, box));
+    }
+
+    [Fact]
+    public void Every_fill_and_the_separate_ports_box_put_the_words_on_the_boxes()
+    {
+        AssertWindowless();
+        // Source pin: the wiring these pure tests cannot reach.
+        string dir = System.IO.Path.Combine(RepoRoot(), "JJFlexWpf", "Dialogs");
+        string main = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "SettingsDialog.xaml.cs"));
+        string words = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "SettingsDialog.PortFieldWords.cs"));
+        string xaml = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "SettingsDialog.xaml"));
+        // The first load and the disconnected refill record no reported port.
+        Assert.Equal(2, CountOf(main, "ShowPortFieldWords(-1, -1);"));
+        Assert.Contains("ShowPortFieldWords(tcp, udp);", main);
+        int handler = main.IndexOf("private void PortForwardSeparatePortsCheck_Changed", System.StringComparison.Ordinal);
+        Assert.True(handler >= 0);
+        int end = main.IndexOf("private void PortForwardTcpBox_TextChanged", handler, System.StringComparison.Ordinal);
+        Assert.True(end > handler);
+        Assert.Contains("ApplyPortFieldWords();", main.Substring(handler, end - handler));
+        // Nothing else writes the labels, so nothing can put a reported
+        // number's words on a suggestion.
+        Assert.DoesNotContain("PortForwardTcpLabel.Text =", main);
+        Assert.DoesNotContain("PortForwardUdpLabel.Text =", main);
+        Assert.Contains("PortForwardTcpLabel.Text = words.TcpLabel;", words);
+        Assert.Contains("PortForwardUdpLabel.Text = words.UdpLabel;", words);
+        Assert.Contains("AutomationProperties.SetName(PortForwardTcpBox, words.TcpName);", words);
+        Assert.Contains("AutomationProperties.SetName(PortForwardUdpBox, words.UdpName);", words);
+        Assert.Contains("AutomationProperties.SetHelpText(PortForwardTcpBox, words.TcpHelp);", words);
+        Assert.Contains("AutomationProperties.SetHelpText(PortForwardUdpBox, words.UdpHelp);", words);
+        Assert.Contains("x:Name=\"PortForwardUdpLabel\"", xaml);
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new System.IO.DirectoryInfo(System.AppContext.BaseDirectory);
+        while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        return dir!.FullName;
     }
 
     /// <summary>

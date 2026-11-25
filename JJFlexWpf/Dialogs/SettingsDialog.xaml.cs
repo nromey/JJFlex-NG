@@ -526,7 +526,8 @@ namespace JJFlexWpf.Dialogs
             PortForwardUdpBox.Text = "4992";
             PortForwardSeparatePortsCheck.IsChecked = false;
             PortForwardUdpBox.IsEnabled = false;
-            PortForwardTcpLabel.Text = Lexicon.Get("settings.network.port_label_shared");
+            // No radio yet: the 4992s are suggestions, and the boxes say so.
+            ShowPortFieldWords(-1, -1);
             NetworkCurrentStateText.Text = Lexicon.Get("settings.no_radio_connected");
 
             // Task #102 — path learning (Network tab, bottom). Commits live
@@ -675,7 +676,7 @@ namespace JJFlexWpf.Dialogs
                 PortForwardUdpBox.Text = "4992";
                 PortForwardSeparatePortsCheck.IsChecked = false;
                 PortForwardUdpBox.IsEnabled = false;
-                PortForwardTcpLabel.Text = Lexicon.Get("settings.network.port_label_shared");
+                ShowPortFieldWords(-1, -1);
                 RecordPortForwardShown();
                 // The tier is no longer edited here, connected or not (the
                 // tiers work, decision 8): this tab shows the in-use account's
@@ -688,16 +689,18 @@ namespace JJFlexWpf.Dialogs
             bool enabled = _rig.PortForwardingEnabled;
             int tcp = _rig.PortForwardingTcpPort;
             int udp = _rig.PortForwardingUdpPort;
-            bool portsDiffer = enabled && tcp > 0 && udp > 0 && tcp != udp;
+            var fill = PortBoxFill(enabled, tcp, udp);
+            bool portsDiffer = fill.Separate;
 
             PortForwardEnabledCheck.IsChecked = enabled;
-            PortForwardTcpBox.Text = (tcp > 0 ? tcp : 4992).ToString();
-            // A UDP port that is not known (-1) mirrors the TCP box, as the
-            // shared field does, rather than showing an unrelated 4992 (#1065).
-            PortForwardUdpBox.Text = (udp > 0 ? udp : tcp > 0 ? tcp : 4992).ToString();
+            PortForwardTcpBox.Text = fill.TcpText;
+            PortForwardUdpBox.Text = fill.UdpText;
             PortForwardSeparatePortsCheck.IsChecked = portsDiffer;
             PortForwardUdpBox.IsEnabled = portsDiffer;
-            PortForwardTcpLabel.Text = portsDiffer ? Lexicon.Get("settings.network.port_label_tcp_only") : Lexicon.Get("settings.network.port_label_shared");
+            // A box holding a number the radio did not report (4992, or the
+            // TCP number copied into the UDP box) is labelled and named as a
+            // suggestion; a reported number keeps today's words (repair round 2).
+            ShowPortFieldWords(tcp, udp);
             // Track C wording fix: the radio advertises these external ports;
             // it listens on its LAN address at 4994/4993. Saying "listens on
             // your port" sent a live debugging session down the wrong road.
@@ -820,9 +823,9 @@ namespace JJFlexWpf.Dialogs
             if (PortForwardUdpBox == null || PortForwardTcpLabel == null) return;
             bool separate = PortForwardSeparatePortsCheck.IsChecked == true;
             PortForwardUdpBox.IsEnabled = separate;
-            PortForwardTcpLabel.Text = separate ? Lexicon.Get("settings.network.port_label_tcp_only") : Lexicon.Get("settings.network.port_label_shared");
             if (!separate)
                 PortForwardUdpBox.Text = PortForwardTcpBox.Text;
+            ApplyPortFieldWords();
         }
 
         /// <summary>

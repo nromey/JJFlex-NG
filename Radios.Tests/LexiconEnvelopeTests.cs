@@ -936,6 +936,23 @@ namespace Radios.Tests
                 "settings.network.forwarding_on_ports_unknown",
                 "settings.network.router_rules_ports_unknown",
                 "settings.radio.way_in.set_ports_unknown",
+                // Junk box batch 30 repair round 2: the port boxes' words when
+                // a number in them was supplied by the app. The _label_udp,
+                // _name_shared and _name_udp keys are today's words moved out
+                // of the layout; the rest are DRAFT facts for Codex to word.
+                "settings.network.port_label_shared_suggested",
+                "settings.network.port_label_shared_udp_suggested",
+                "settings.network.port_label_tcp_only_suggested",
+                "settings.network.port_label_udp",
+                "settings.network.port_label_udp_suggested",
+                "settings.network.port_name_shared",
+                "settings.network.port_name_shared_suggested",
+                "settings.network.port_name_shared_udp_suggested",
+                "settings.network.port_name_tcp_only_suggested",
+                "settings.network.port_name_udp",
+                "settings.network.port_name_udp_suggested",
+                "settings.network.port_help_suggested",
+                "settings.network.port_help_udp_copied",
                 // Junk box batch 30, #276: the on-demand read closes with one
                 // clause for the Routine things running. DRAFT, for Codex.
                 "logging.running.routine_clause",
