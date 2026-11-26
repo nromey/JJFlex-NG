@@ -344,38 +344,52 @@ namespace JJPortaudio
     /// <para><b>The level control normalises the band</b> (the level fix,
     /// 2026-11-26, after the prior-art survey and a real voice showed the
     /// first design's effect falling a decibel for every decibel the voice
-    /// fell). The band's peak, linked across both channels, is HELD (for
-    /// <see cref="HoldMs"/> in the high band, <see cref="LowBandHoldMs"/> in
-    /// the low, each longer than the longest period its input filter passes)
-    /// and then released over <see cref="ReleaseMs"/>. That held peak, eased
-    /// at the floor (below), is the envelope e. The shaper is fed v = band / e,
+    /// fell). The detector is the band's peak, linked across both channels:
+    /// the largest sample of the last <see cref="HoldMs"/> (the high band) or
+    /// <see cref="LowBandHoldMs"/> (the low band, longer than one period of
+    /// the lowest frequency its input filter passes), a sliding maximum,
+    /// released over <see cref="ReleaseMs"/> when it falls. That peak, eased at
+    /// the floors (below), is the envelope e. The shaper is fed v = band / e,
     /// and what it makes is multiplied by e again. So the shaper always works
-    /// on the band at about unit size whatever the microphone level, and the
+    /// on the band at unit size whatever the microphone level, and the
     /// harmonic it makes rises and falls LINEARLY with the band: scale the
     /// input by any factor above the floor and the added path scales by the
-    /// same factor. The argument stays about one at most (v is the band over
-    /// its own held peak; on release it can pass one by the release step, at
-    /// most about 1.0016 at 8 kHz), the same guarantee the first design's
-    /// turn-down-only control gave. A steady signal's peak is refreshed before
-    /// the hold ends, so its envelope is exactly constant and the shaper's
-    /// output is a pure polynomial of the band; a rising level steps the
-    /// envelope at the sample that sets a new peak, and a falling one releases
-    /// it, and both modulate the band, which makes products beyond the
-    /// polynomial's order (see <see cref="ClarityDesign"/>). Before the fix
-    /// that modulation happened only once the drive had pushed the band into
-    /// the control; now it happens at every level above the floor, at the
-    /// size it always had there.</para>
-    /// <para><b>Why a held peak and not a smoothed RMS:</b> the bound. A
-    /// band divided by its own RMS has the band's crest factor as its peak
+    /// same factor. The argument is at most one, strictly: the envelope is
+    /// never below the band's own sample, because the sliding maximum includes
+    /// it (the first design's turn-down-only control could pass one by its
+    /// release step, at most about 1.0016 at 8 kHz). Any signal whose cycles
+    /// repeat within the window (a steady tone, two tones, a vowel's
+    /// harmonics) holds the sliding maximum still, so the shaper's output is a
+    /// polynomial of the band with no envelope ripple (to within the few tenths
+    /// of a percent its sampled peaks differ by, released at the release rate);
+    /// a rising level steps the envelope at the sample that sets a new
+    /// maximum, and a falling one releases it, and both modulate the band,
+    /// which makes products beyond the polynomial's order (see
+    /// <see cref="ClarityDesign"/>). Before the fix that modulation happened
+    /// only once the drive had pushed the band into the control; now it
+    /// follows the voice's own rise and fall at every level above the
+    /// floor.</para>
+    /// <para><b>Why a peak and not a smoothed RMS:</b> the bound. A band
+    /// divided by its own RMS has the band's crest factor as its peak
     /// argument (three to four for speech in these narrow bands), so the cubic
     /// would see 30 to 60 times its unit-size output at a peak, and a smoothed
     /// detector fast enough to follow syllables ripples at twice the band's
-    /// frequency, modulating even a steady tone. The held peak gives an
-    /// argument bounded by one, an exactly constant envelope for a steady
-    /// tone (so the steady-tone fold-back floors are unchanged), an instant
-    /// attack and an 80 ms release that follows syllables.</para>
+    /// frequency, modulating even a steady tone. <b>Why a sliding maximum and
+    /// not the first design's held peak:</b> a held peak renews its hold only
+    /// on a new maximum, so a signal whose cycles peak a hair apart (two
+    /// tones, or a vowel's harmonics, sampled at slightly different phases)
+    /// let the hold run out, released a little and stepped back up, a
+    /// sawtooth at the hold's rate. Measured (2026-11-26, two tones 200 Hz
+    /// apart, drive 24, mix 100) as energy off the shaper's own product lines:
+    /// -37 dB (even) and -21 to -29 dB (odd) relative to them with the held
+    /// peak, the first design's figures once its control engaged. A
+    /// sliding maximum has no hold to run out, and no onset to stick on: an
+    /// onset's overshoot leaves the window after <see cref="HoldMs"/>.</para>
     /// <para><b>The floor</b> (<see cref="LevelFloorDbfs"/>, a band peak in
-    /// dBFS): the envelope is sqrt(peak^2 + floor^2), not the peak itself. Well
+    /// dBFS): the envelope is sqrt(peak^2 + floor^2 + relative^2), not the
+    /// peak itself, where the relative floor (<see cref="RelativeFloorDb"/>)
+    /// follows the band's wide signal and keeps leakage from being
+    /// normalised. Well
     /// above the floor that is the peak (within 0.04 dB at 20 dB above); well
     /// below it, it is the floor, a constant, so the shaper falls back to a
     /// plain polynomial of the band and the harmonic falls a decibel for every
@@ -394,8 +408,8 @@ namespace JJPortaudio
     /// ratio after it is made, not by driving its input, so the odd shaper's
     /// harmonic no longer follows the square of the drive. "Both" makes each
     /// harmonic at half that ratio. A real voice reads lower than a tone at
-    /// the same drive, because its band sits below its held peak between
-    /// peaks and several of its harmonics share the band; what is level
+    /// the same drive, because its band sits below its peak between peaks and
+    /// several of its harmonics share the band; what is level
     /// independent is the ratio at a given drive, not its exact figure.</para>
     /// <para><b>The shapers are harmonic-only.</b> With v the normalised band
     /// and m the running mean of v squared: even is 2 (v^2 - m) (the second
@@ -445,14 +459,21 @@ namespace JJPortaudio
         /// <summary>How long a change of design, or the stage switching on or off, fades the added path.</summary>
         public const float CrossFadeMs = 20f;
 
-        /// <summary>How long the level control holds the high band's peak before releasing it (its input starts above 300 Hz, a period under 4 ms).</summary>
+        /// <summary>The level control's window for the high band: its envelope is the band's largest sample in the last this-many milliseconds (its input starts above 300 Hz, a period under 4 ms).</summary>
         public const float HoldMs = 20f;
 
-        /// <summary>How long the level control holds the low band's peak: longer than one period of its input filter's lowest frequency (<see cref="ClarityDesign.LowBandFloorHz"/>, 33 ms), so a steady low tone's envelope does not release between its peaks.</summary>
+        /// <summary>The level control's window for the low band: longer than one period of its input filter's lowest frequency (<see cref="ClarityDesign.LowBandFloorHz"/>, 33 ms), so a steady low tone's envelope does not fall between its peaks.</summary>
         public const float LowBandHoldMs = 40f;
 
-        /// <summary>The level control's release time constant.</summary>
+        /// <summary>The level control's release time constant, once the window's maximum falls.</summary>
         public const float ReleaseMs = 80f;
+
+        /// <summary>
+        /// The highest rate the level control's detectors are sized for, with
+        /// no allocation: above it their window is the most their rings hold
+        /// (a shorter hold). The transmit stream runs at 48 kHz or below.
+        /// </summary>
+        public const int DetectorMostRate = 96000;
 
         /// <summary>
         /// The level fix's floor, a band peak in dBFS: below it the envelope
@@ -482,7 +503,7 @@ namespace JJPortaudio
 
         /// <summary>
         /// The relative floor, dB: the envelope is never less than this far
-        /// below the held peak of the band's WIDE signal, the input after the
+        /// below the peak of the band's WIDE signal, the input after the
         /// band's high-pass and before its band limit. In-band content sits
         /// well above it (for a tone in the band, wide and band are the same
         /// signal, and the floor costs 0.004 dB). What the band limit lets
@@ -727,6 +748,68 @@ namespace JJPortaudio
                 if (Interlocked.CompareExchange(ref target, v, was) == was) break;
         }
 
+        /// <summary>
+        /// The level control's detector: the largest value of the last
+        /// <c>window</c> frames (a sliding maximum, kept as a monotonic queue in
+        /// preallocated rings), released over <see cref="ReleaseMs"/> when it
+        /// falls. Allocation-free after construction.
+        /// </summary>
+        private sealed class SlidingPeak
+        {
+            private readonly double[] _val;
+            private readonly int[] _at;
+            private int _head, _count;
+
+            /// <summary>The detector's output: the sliding maximum, or its release when that is higher.</summary>
+            public double Envelope;
+
+            public SlidingPeak(int capacity) { _val = new double[capacity]; _at = new int[capacity]; }
+
+            /// <summary>The longest window this detector can hold (one less than its ring).</summary>
+            public int MostWindow => _val.Length - 1;
+
+            public void Clear() { _head = 0; _count = 0; Envelope = 0; }
+
+            public void CopyFrom(SlidingPeak o)
+            {
+                int cap = _val.Length;
+                _head = 0; _count = o._count; Envelope = o.Envelope;
+                for (int i = 0, j = o._head; i < o._count; i++)
+                {
+                    _val[i] = o._val[j]; _at[i] = o._at[j];
+                    if (++j == cap) j = 0;
+                }
+            }
+
+            /// <summary>One frame: <paramref name="a"/> enters at <paramref name="frame"/> (a counter rising by one a frame; it may wrap).</summary>
+            public double Step(double a, int frame, int window, double release)
+            {
+                int cap = _val.Length;
+                // The values this one is at least as large as can never be the maximum again.
+                while (_count > 0)
+                {
+                    int back = _head + _count - 1;
+                    if (back >= cap) back -= cap;
+                    if (_val[back] <= a) _count--; else break;
+                }
+                int slot = _head + _count;
+                if (slot >= cap) slot -= cap;
+                _val[slot] = a; _at[slot] = frame; _count++;
+                // The oldest leaves when it falls out of the window (the newest never does).
+                while (_count > 1 && frame - _at[_head] >= window)
+                {
+                    if (++_head == cap) _head = 0;
+                    _count--;
+                }
+                double most = _val[_head];
+                double released = Envelope - Envelope * release;
+                Envelope = most > released ? most : released;
+                return Envelope;
+            }
+
+            public void FlushTiny() { if (Envelope < 1e-20) Envelope = 0; }
+        }
+
         /// <summary>One complete set of coefficients and state for both bands and both channels. Preallocated; nothing here allocates.</summary>
         private sealed class Engine
         {
@@ -737,14 +820,18 @@ namespace JJPortaudio
             private readonly double[] _wEven = new double[2];   // the even harmonic's ratio to the band (HarmonicRatio, halved for Both)
             private readonly double[] _wOdd = new double[2];    // the odd harmonic's
             private readonly double[] _mix = new double[2];     // fraction
-            private readonly double[] _peak = new double[2];    // held peak, linked across channels
-            private readonly int[] _holdLeft = new int[2];
-            private readonly double[] _peakWide = new double[2];  // held peak before the band limit (after the input high-pass), linked
-            private readonly int[] _holdLeftWide = new int[2];
+            // The detectors, linked across channels: [band * 2] the band's own peak, [band * 2 + 1] its wide signal's
+            // (after the input high-pass, before the band limit). Sized for DetectorMostRate.
+            private readonly SlidingPeak[] _det =
+            {
+                new SlidingPeak((int)(HoldMs * 0.001 * DetectorMostRate) + 2), new SlidingPeak((int)(HoldMs * 0.001 * DetectorMostRate) + 2),
+                new SlidingPeak((int)(LowBandHoldMs * 0.001 * DetectorMostRate) + 2), new SlidingPeak((int)(LowBandHoldMs * 0.001 * DetectorMostRate) + 2),
+            };
             private readonly double[] _meanSq = new double[Channels * 2]; // [band][channel]
             private readonly double[] _meanAlpha = new double[2];
-            private readonly int[] _holdFrames = new int[2];
+            private readonly int[] _window = new int[2];
             private double _release;
+            private int _frame;
 
             public bool Active;
 
@@ -753,7 +840,7 @@ namespace JJPortaudio
             public void ClearState()
             {
                 for (int k = 0; k < _st.Length; k++) _st[k].Clear();
-                for (int b = 0; b < 2; b++) { _peak[b] = 0; _holdLeft[b] = 0; _peakWide[b] = 0; _holdLeftWide[b] = 0; }
+                for (int k = 0; k < _det.Length; k++) _det[k].Clear();
                 for (int k = 0; k < _meanSq.Length; k++) _meanSq[k] = 0;
             }
 
@@ -765,14 +852,12 @@ namespace JJPortaudio
                 Array.Copy(e._wEven, _wEven, 2);
                 Array.Copy(e._wOdd, _wOdd, 2);
                 Array.Copy(e._mix, _mix, 2);
-                Array.Copy(e._peak, _peak, 2);
-                Array.Copy(e._holdLeft, _holdLeft, 2);
-                Array.Copy(e._peakWide, _peakWide, 2);
-                Array.Copy(e._holdLeftWide, _holdLeftWide, 2);
+                for (int k = 0; k < _det.Length; k++) _det[k].CopyFrom(e._det[k]);
                 Array.Copy(e._meanSq, _meanSq, _meanSq.Length);
                 Array.Copy(e._meanAlpha, _meanAlpha, 2);
-                Array.Copy(e._holdFrames, _holdFrames, 2);
+                Array.Copy(e._window, _window, 2);
                 _release = e._release;
+                _frame = e._frame;
                 Active = e.Active;
             }
 
@@ -786,8 +871,9 @@ namespace JJPortaudio
                     ClarityDesign.Compute(d.Settings, d.PassbandLowEdgeHz, d.PassbandHighEdgeHz, rate, _co, d.InputBandLimited);
                 Set(ClarityDesign.HighBand, d.Settings.High, wasActive);
                 Set(ClarityDesign.LowBand, d.Settings.Low, wasActive);
-                _holdFrames[ClarityDesign.HighBand] = Math.Max(1, (int)(HoldMs * 0.001 * rate));
-                _holdFrames[ClarityDesign.LowBand] = Math.Max(1, (int)(LowBandHoldMs * 0.001 * rate));
+                // Above DetectorMostRate the window is the most the rings hold (a shorter hold), never an allocation.
+                _window[ClarityDesign.HighBand] = Math.Clamp((int)(HoldMs * 0.001 * rate), 1, _det[0].MostWindow);
+                _window[ClarityDesign.LowBand] = Math.Clamp((int)(LowBandHoldMs * 0.001 * rate), 1, _det[2].MostWindow);
                 _release = 1.0 - Math.Exp(-1.0 / (ReleaseMs * 0.001 * rate));
                 // The running mean of v^2: long enough to smooth twice the band's lowest input frequency.
                 _meanAlpha[ClarityDesign.HighBand] = 1.0 - Math.Exp(-1.0 / (0.005 * rate));
@@ -802,7 +888,7 @@ namespace JJPortaudio
                 {
                     // A band coming on starts from rest.
                     for (int k = 0; k < S * Channels; k++) _st[band * S * Channels + k].Clear();
-                    _peak[band] = 0; _holdLeft[band] = 0; _peakWide[band] = 0; _holdLeftWide[band] = 0;
+                    _det[band * 2].Clear(); _det[band * 2 + 1].Clear();
                     _meanSq[band * Channels] = 0; _meanSq[band * Channels + 1] = 0;
                 }
                 _bandOn[band] = on;
@@ -815,6 +901,7 @@ namespace JJPortaudio
             public void Frame(double xl, double xr, out double al, out double ar)
             {
                 al = 0; ar = 0;
+                _frame++;
                 for (int band = 0; band < 2; band++)
                 {
                     if (!_bandOn[band]) continue;
@@ -829,15 +916,10 @@ namespace JJPortaudio
                         bl = _st[sl + k].Step(in _co[c + k], bl);
                         br = _st[sr + k].Step(in _co[c + k], br);
                     }
-                    // The level control: the band's held peak, linked, eased at the two floors, is the envelope.
+                    // The level control: the band's sliding peak, linked, eased at the two floors, is the envelope.
                     double a = Math.Max(Math.Abs(bl), Math.Abs(br));
-                    if (a >= _peak[band]) { _peak[band] = a; _holdLeft[band] = _holdFrames[band]; }
-                    else if (_holdLeft[band] > 0) _holdLeft[band]--;
-                    else _peak[band] -= _peak[band] * _release;
-                    if (w >= _peakWide[band]) { _peakWide[band] = w; _holdLeftWide[band] = _holdFrames[band]; }
-                    else if (_holdLeftWide[band] > 0) _holdLeftWide[band]--;
-                    else _peakWide[band] -= _peakWide[band] * _release;
-                    double pk = _peak[band], pw = _peakWide[band] * RelativeFloor;
+                    double pk = _det[band * 2].Step(a, _frame, _window[band], _release);
+                    double pw = _det[band * 2 + 1].Step(w, _frame, _window[band], _release) * RelativeFloor;
                     double e = Math.Sqrt(pk * pk + pw * pw + FloorSquared);
                     double inv = 1.0 / e;
                     // Shape the band at unit size, then put it back at the band's scale.
@@ -855,8 +937,8 @@ namespace JJPortaudio
             }
 
             /// <summary>
-            /// The harmonic-only shapers on the normalised band v (about unit
-            /// size), each weighted by its ratio to the band (the drive, see
+            /// The harmonic-only shapers on the normalised band v (at most one
+            /// in size), each weighted by its ratio to the band (the drive, see
             /// <see cref="HarmonicRatio"/>). The caller multiplies by the envelope.
             /// </summary>
             private double Shape(int band, int ch, double v)
@@ -873,11 +955,7 @@ namespace JJPortaudio
             {
                 for (int k = 0; k < _st.Length; k++) _st[k].FlushTiny();
                 for (int k = 0; k < _meanSq.Length; k++) if (_meanSq[k] < 1e-30) _meanSq[k] = 0;
-                for (int b = 0; b < 2; b++)
-                {
-                    if (_peak[b] < 1e-20) _peak[b] = 0;
-                    if (_peakWide[b] < 1e-20) _peakWide[b] = 0;
-                }
+                for (int k = 0; k < _det.Length; k++) _det[k].FlushTiny();
             }
         }
     }

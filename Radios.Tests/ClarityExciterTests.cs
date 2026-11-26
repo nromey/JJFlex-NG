@@ -318,6 +318,40 @@ namespace Radios.Tests
             Assert.True(inBand - above >= 50, $"the leaked tone was excited only {inBand - above:F1} dB less than an in-band one");
         }
 
+        [Theory]
+        [InlineData(ClarityHarmonics.Even, 48000u)]
+        [InlineData(ClarityHarmonics.Odd, 48000u)]
+        [InlineData(ClarityHarmonics.Odd, 8000u)]
+        public void Two_tones_spaced_like_a_voices_harmonics_hold_the_envelope_still_and_add_only_the_shapers_own_products(ClarityHarmonics h, uint rate)
+        {
+            // The sliding maximum (the level fix): a held peak that renews only on a new maximum let the
+            // hold run out between beats whose sampled peaks differ a hair, and stepped back up, which put
+            // energy off the shaper's product lines at -37 dB (even) and -21 to -29 dB (odd) relative to them.
+            const double f1 = 1100, f2 = 1300;
+            var s = High(h == ClarityHarmonics.Even ? 2000 : 3000, 24, 100, h);
+            int frames = (int)rate * 2;
+            double amp = Math.Pow(10, -16 / 20.0);
+            var input = new float[frames * 2];
+            for (int i = 0; i < frames; i++) input[2 * i] = input[2 * i + 1] = (float)(amp * (Math.Sin(2 * Math.PI * f1 * i / rate) + Math.Sin(2 * Math.PI * f2 * i / rate)));
+            var output = Run(Make(s, rate), input, rate);
+            int n = 1; while (n * 2 <= rate) n *= 2;
+            var re = new double[n]; var im = new double[n];
+            for (int i = 0; i < n; i++) { int k = frames - n + i; re[i] = (output[2 * k] - input[2 * k]) * (0.5 - 0.5 * Math.Cos(2 * Math.PI * i / n)); }
+            Radix2Fft.Forward(re, im);
+            int order = h == ClarityHarmonics.Even ? 2 : 3;
+            var lines = new System.Collections.Generic.List<double>();
+            for (int p = 0; p <= order; p++) for (int q = 0; q <= order - p; q++) if (p + q > 0) { lines.Add(Math.Abs(p * f1 + q * f2)); lines.Add(Math.Abs(p * f1 - q * f2)); }
+            double on = 0, off = 0;
+            for (int k = 1; k < n / 2; k++)
+            {
+                double f = k * (double)rate / n, pw = re[k] * re[k] + im[k] * im[k];
+                if (lines.Any(l => Math.Abs(f - l) < 6)) on += pw; else off += pw;
+            }
+            double offDb = 10 * Math.Log10(off / on);
+            _out.WriteLine($"{h} at {rate} Hz: energy off the product lines {offDb:F1} dB relative to them");
+            Assert.True(on > 0 && offDb < -35, $"the envelope rippled: energy off the product lines at {offDb:F1} dB");
+        }
+
         // ── fold-back ──
 
         [Theory]
