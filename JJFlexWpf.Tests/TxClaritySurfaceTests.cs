@@ -1408,7 +1408,7 @@ public sealed class TxClaritySurfaceTests
         var now = TxAudioConditioning.ClaritySetup;
         Assert.False(now.LowBand.Enabled);                                // what was said is what landed
         Assert.Equal(TxClarityHarmonics.Both, now.HighBand.Harmonics);
-        Assert.Equal((3000f, 9f, 30f), (now.HighBand.TuneHz, now.HighBand.DriveDb, now.HighBand.MixPercent));   // the preset did land, under them
+        Assert.Equal((3000f, 24f, 63f), (now.HighBand.TuneHz, now.HighBand.DriveDb, now.HighBand.MixPercent));   // the preset did land, under them (its drive and mix retuned with the level fix, 2026-11-26)
         Assert.Equal(120f, now.LowBand.TuneHz);
         Assert.Equal(now.ToSettings(), b.Cond.Clarity.Settings);
     }
