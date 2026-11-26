@@ -9,6 +9,33 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-26 (COVERS 2026-11-25 05:55 TO 2026-11-26 11:35, MEASURED FROM `a5e87898`) — BATCH 30'S REPAIRS AND WORDS; JJ CLARITY MEASURED ON A REAL VOICE AND ITS LEVEL FIX BUILT; THE TWELFTH NIGHT MODE
+
+*2026-11-25 was a working day; night mode ran from 22:19 with one window, sound processing. Noel said "morning" at 10:37 in that window; no other window had been in night mode, so none was woken. This seal measures from the previous seal's commit.*
+
+**Main:** unchanged at `607aca13` apart from the last seal's own commit; nothing merged.
+
+**Junk box (unmerged):**
+- **Batch 30** (`junkbox/2026-11-25-batch-30`, now at `52a5962f`): two repair rounds on #1065 (with port forwarding on and an external port unknown, Settings and Radio Setup say so, and a port the radio did not report is labelled as a suggestion; `259a539d`, `52a5962f`), each re-checked and worded by Codex. Waits on Noel's sheet and the harness read of the Network tab.
+- Batches 28 and 29 unchanged, waiting on Noel's sheet.
+
+**Sprint 49 (sound processing window):**
+- **JJ Clarity measured on a real voice for the first time** (a private headset take, kept in JJFlex-private). The original design was square-law below a level control that only turned down, so at an everyday speaking level three of four presets changed the presence region by 0.1 dB or less.
+- **The level fix, built in night mode** on `sprint49/clarity-level` from `41dafef0` (`ca71cc22`, `b826363b`, `fecac63a`; Opus): the band is normalised by its own envelope (a sliding-maximum detector) before the shaper, with a -60 dBFS soft floor and a relative floor against filter leakage; presets retuned to measured targets. Level-independent to 0.1 dB on the take. Radios.Tests 7,598 of 7,598 (the agent's run); the orchestrator re-ran the Clarity classes (131 of 131) and `TxClaritySurfaceTests` (89 of 89). Not pushed: its first commit's code comment names the operator beside his recording, so it waits on his ruling (question 36).
+- **Offline intelligibility:** a same-size EQ lift scored at least as well as Clarity by STOI and a simplified SII in all 24 scenarios. Brighter, not clearer, on these measures; the name waits on Noel's listening (question 31).
+- **Running at the seal:** a Fable research run deciding how to measure each other transmit stage (expander, EQ, de-esser, compressor, limiter) on real speech, and checking each against established tools (`research/2026-11-26-tx-chain-yardsticks/` in JJFlex-private). An Opus measurement run follows it.
+- Register: #1348 ("Learn my voice", a guided audition; the first run explains its beep cues, then "don't show this again"); #736 updated.
+
+**Questions:** the three night questions files were merged into one, `for-noel/2026-11-25-all-open-questions.md`, 36 questions, each split into question, background, what it blocks and the recommendation.
+
+**Seal checks:** no vulnerable packages (33 projects); memory drift, no new candidate from today's entries; Codex instruction tests 5 of 5, prompt check positive, sandbox healthy; register intake, 20 entries opened since the last seal all targeted and prioritized, 0 junk box entries unprioritized; 507 for-claude entries (week 47) moved to the NAS; backups of memory, Claude state, settings and NVDA logs; the nightly promote skipped (no new debug build, and the only code change is unmerged and untested on a radio).
+
+**Next:** Noel's answers to the 36 questions and his sheets; the research report, then the measurement run; a second voice recording session, scripted from the research, with beep cues.
+
+### Rigmeter snapshot — end of 2026-11-26
+- **Main only**, since 2026-11-25: 1 commit (the last seal), +95 / -153. The day's code is on branches: `sprint49/clarity-level` +487 / -88 across 4 files, batch 30's repairs +534 / -11 across 8 files.
+- Snapshot: `historical\stats\2026-11-25-a5e87898.json` on the NAS.
+
 ## END-OF-DAY SEAL — 2026-11-25 (COVERS 2026-11-22 07:15 TO 2026-11-25 05:55, MEASURED FROM `f762db5e`) — BATCHES 19 TO 24, 26 AND 27, #906, THE SMARTLINK TIERS AND #1244 ON MAIN; BATCHES 28 TO 30 BUILT AND CHECKED; THE CALLSIGN CHECK MADE OPTIONAL; SPRINT 49 JJ CLARITY PHASE 2 ON INTEGRATION; TWO NIGHT MODES
 
 *No seal ran between 2026-11-22 07:15 and now. 2026-11-23 was a working day with the eleventh night mode after it; the morning of 2026-11-24 merged and pushed main without a seal (the register's commit at 07:02 says so); 2026-11-24 was a working day; night mode ran from 22:34. Noel said "morning" at 05:47 on 2026-11-25 in the junk box window; the sound processing window replied received and wrapped up within two minutes. Recap: the top of `for-noel/2026-11-24-night-status.md` in JJFlex-private. Cross-surface sweep: `for-claude/2026-11-25-seal-sweep.md`.*
