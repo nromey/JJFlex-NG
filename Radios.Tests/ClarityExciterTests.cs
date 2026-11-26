@@ -125,6 +125,7 @@ namespace Radios.Tests
         [Theory]
         [InlineData(ClarityHarmonics.Even)]
         [InlineData(ClarityHarmonics.Odd)]
+        [InlineData(ClarityHarmonics.Both)]
         public void A_tone_through_the_high_band_gets_its_second_or_third_harmonic_at_the_expected_level(ClarityHarmonics h)
         {
             const uint rate = 48000;
@@ -137,22 +138,184 @@ namespace Radios.Tests
             var output = Run(c, Tone(f, amp, (int)rate, rate), rate);
             var x = Left(output, (int)rate / 4, (int)rate / 2);
 
-            // The law: with drive gain g and band amplitude A (the input filter's gain applied),
-            // u = g A; the second harmonic is u times A, the third u squared times A;
-            // then the added path's filter at the harmonic. The level control does not act (g A < 1).
-            double g = Math.Pow(10, 6 / 20.0);
+            // The law since the level fix (2026-11-26): for a steady tone above the floor the
+            // harmonic's ratio to the band is the drive's HarmonicRatio, for even and odd alike
+            // (half of it for each of Both's two harmonics), whatever the band's level; then the
+            // added path's filter at the harmonic. Before the fix this test pinned the square
+            // law: the ratio was the driven amplitude g x band (even) or its square (odd).
             double band = amp * Math.Pow(10, design.InputGainDb(true, f) / 20);
-            double u = g * band;
-            Assert.True(u < 1);
-            int order = h == ClarityHarmonics.Even ? 2 : 3;
-            double expected = (order == 2 ? u : u * u) * band * Math.Pow(10, design.AddedPathGainDb(true, order * f) / 20);
-            double got = Amplitude(x, order * f, rate);
-            _out.WriteLine($"{h}: harmonic {order} expected {Db(expected):F2} dBFS, got {Db(got):F2} dBFS");
-            Assert.InRange(Db(got) - Db(expected), -0.5, 0.5);
+            double ratio = ClarityExciter.HarmonicRatio(6) * (h == ClarityHarmonics.Both ? 0.5 : 1.0);
+            foreach (int order in h == ClarityHarmonics.Both ? new[] { 2, 3 } : new[] { h == ClarityHarmonics.Even ? 2 : 3 })
+            {
+                double expected = ratio * band * Math.Pow(10, design.AddedPathGainDb(true, order * f) / 20);
+                double got = Amplitude(x, order * f, rate);
+                _out.WriteLine($"{h}: harmonic {order} expected {Db(expected):F2} dBFS, got {Db(got):F2} dBFS");
+                Assert.InRange(Db(got) - Db(expected), -0.5, 0.5);
+            }
 
             // And the other order is not made.
-            int other = order == 2 ? 3 : 2;
-            Assert.True(Db(Amplitude(x, other * f, rate)) < Db(got) - 40, $"{h} made harmonic {other} as well");
+            if (h != ClarityHarmonics.Both)
+            {
+                int order = h == ClarityHarmonics.Even ? 2 : 3, other = order == 2 ? 3 : 2;
+                Assert.True(Db(Amplitude(x, other * f, rate)) < Db(Amplitude(x, order * f, rate)) - 40, $"{h} made harmonic {other} as well");
+            }
+        }
+
+        // ── the level fix: what drive means does not depend on the microphone level ──
+
+        /// <summary>The harmonic of a steady tone relative to the tone, dB, at an input peak level.</summary>
+        private static double HarmonicReTone(ClaritySettings s, double f, int order, double peakDbfs, uint rate = 48000)
+        {
+            double amp = Math.Pow(10, peakDbfs / 20);
+            var output = Run(Make(s, rate), Tone(f, amp, (int)rate, rate), rate);
+            var x = Left(output, (int)rate / 2, (int)rate / 2);
+            return Db(Amplitude(x, order * f, rate)) - Db(amp);
+        }
+
+        public static TheoryData<bool, ClarityHarmonics> BandsAndHarmonics()
+        {
+            var d = new TheoryData<bool, ClarityHarmonics>();
+            foreach (bool high in new[] { true, false })
+                foreach (var h in new[] { ClarityHarmonics.Even, ClarityHarmonics.Odd, ClarityHarmonics.Both }) d.Add(high, h);
+            return d;
+        }
+
+        [Theory]
+        [MemberData(nameof(BandsAndHarmonics))]
+        public void The_added_harmonics_ratio_to_a_tone_stays_flat_from_minus_40_to_minus_6_dBFS(bool highBand, ClarityHarmonics h)
+        {
+            // The survey's "flat line" success test (#736, 2026-11-25): before the fix the ratio
+            // fell a decibel (even) or two (odd) for every decibel the tone fell. The positive
+            // control is the floor test below: the same measurement does see the ratio move.
+            var s = highBand
+                ? High(h == ClarityHarmonics.Even ? 2000 : 3000, 15, 60, h)
+                : new ClaritySettings(ClaritySettings.Default.High.WithEnabled(false), new ClarityBand(true, 150, 15, 60, h));
+            double f = highBand ? 1200 : 90;
+            int order = h == ClarityHarmonics.Odd ? 3 : 2;
+            var ratios = new System.Collections.Generic.List<(double level, double ratio)>();
+            for (double level = -40; level <= -6; level += 2)
+                ratios.Add((level, HarmonicReTone(s, f, order, level)));
+            foreach (var (level, ratio) in ratios) _out.WriteLine($"{(highBand ? "high" : "low")} {h}: tone at {level:F0} dBFS, harmonic {order} at {ratio:F2} dB re the tone");
+            double spread = ratios.Max(r => r.ratio) - ratios.Min(r => r.ratio);
+            Assert.True(spread <= 1.0, $"the ratio moved {spread:F2} dB across -40 to -6 dBFS");
+            Assert.True(ratios.Min(r => r.ratio) > -60, "the fixture made no harmonic to measure");
+        }
+
+        /// <summary>A voice-like signal: harmonics of a gliding fundamental with a falling spectrum and a four-per-second syllable envelope, peak-normalised.</summary>
+        private static float[] VoiceLike(double peakDbfs, int frames, uint rate)
+        {
+            var mono = new double[frames];
+            var rnd = new Random(7);
+            var phases = Enumerable.Range(0, 40).Select(_ => rnd.NextDouble() * 2 * Math.PI).ToArray();
+            double ph0 = 0;
+            for (int i = 0; i < frames; i++)
+            {
+                double t = i / (double)rate;
+                double f0 = 120 + 15 * Math.Sin(2 * Math.PI * 0.7 * t);
+                ph0 += 2 * Math.PI * f0 / rate;
+                double v = 0;
+                for (int k = 1; k <= 30 && k * f0 < rate / 2.5; k++)
+                {
+                    double hz = k * f0;
+                    double level = hz < 500 ? 1.0 : Math.Pow(500 / hz, 1.3); // about 8 dB per octave above 500 Hz
+                    v += level * Math.Sin(k * ph0 + phases[k]);
+                }
+                double syllable = 0.15 + 0.85 * Math.Pow(Math.Max(0, Math.Sin(Math.PI * 4 * t)), 2);
+                mono[i] = v * syllable;
+            }
+            double peak = mono.Max(Math.Abs), scale = Math.Pow(10, peakDbfs / 20) / peak;
+            var b = new float[frames * 2];
+            for (int i = 0; i < frames; i++) b[2 * i] = b[2 * i + 1] = (float)(mono[i] * scale);
+            return b;
+        }
+
+        [Fact]
+        public void On_a_voice_like_signal_what_Clarity_adds_relative_to_the_voice_stays_flat_from_minus_30_to_minus_6_dBFS()
+        {
+            const uint rate = 48000;
+            var presence = ClarityPresets.Find(ClarityPresets.Presence).Settings;
+            var rows = new System.Collections.Generic.List<(double level, double added)>();
+            for (double level = -30; level <= -6; level += 4)
+            {
+                var input = VoiceLike(level, (int)rate * 2, rate);
+                var output = Run(Make(presence, rate, 100, 2900), input, rate);
+                double sx = 0, sd = 0;
+                for (int i = (int)rate / 2; i < input.Length / 2; i++) { double x = input[2 * i], d = output[2 * i] - x; sx += x * x; sd += d * d; }
+                rows.Add((level, 10 * Math.Log10(sd / sx)));
+            }
+            foreach (var (level, added) in rows) _out.WriteLine($"voice-like peak {level:F0} dBFS: added {added:F2} dB re the voice");
+            double spread = rows.Max(r => r.added) - rows.Min(r => r.added);
+            Assert.True(spread <= 1.0, $"what Clarity adds moved {spread:F2} dB across -30 to -6 dBFS");
+            Assert.True(rows.Min(r => r.added) > -50, "presence added nothing measurable on the voice-like signal");
+        }
+
+        [Theory]
+        [InlineData(ClarityHarmonics.Even, 1.0)]
+        [InlineData(ClarityHarmonics.Odd, 2.0)]
+        public void Below_the_floor_the_harmonic_falls_away_smoothly_instead_of_lifting_quiet_sounds(ClarityHarmonics h, double slope)
+        {
+            var s = High(h == ClarityHarmonics.Even ? 2000 : 3000, 18, 60, h);
+            const double f = 1200;
+            int order = h == ClarityHarmonics.Even ? 2 : 3;
+            double floor = ClarityExciter.LevelFloorDbfs;
+            // The tone sits on the band's passband, so the band's level is the tone's to within a decibel.
+            var rows = new System.Collections.Generic.List<(double level, double ratio)>();
+            for (double level = floor - 30; level <= floor + 30; level += 2)
+                rows.Add((level, HarmonicReTone(s, f, order, level)));
+            foreach (var (level, ratio) in rows) _out.WriteLine($"{h}: tone at {level:F0} dBFS ({level - floor:+0;-0} re the floor), harmonic at {ratio:F2} dB re the tone");
+            double above = rows.Last().ratio;
+            double at20Below = rows.Single(r => Math.Abs(r.level - (floor - 20)) < 0.1).ratio;
+            // Twenty decibels below the floor the harmonic has fallen away: by about the stated slope.
+            Assert.True(above - at20Below >= 0.8 * 20 * slope, $"20 dB below the floor the harmonic fell only {above - at20Below:F1} dB");
+            // At the floor it is eased, not cut: about 3 dB (even) or 6 dB (odd) down.
+            double atFloor = rows.Single(r => Math.Abs(r.level - floor) < 0.1).ratio;
+            Assert.InRange(above - atFloor, 2.0 * slope, 4.5 * slope);
+            // Smooth: it never rises as the tone falls, and no 2 dB step moves it more than the slope allows.
+            for (int i = 1; i < rows.Count; i++)
+            {
+                double step = rows[i].ratio - rows[i - 1].ratio;
+                Assert.True(step >= -0.05 && step <= 2 * slope + 0.3, $"a step of {step:F2} dB between {rows[i - 1].level:F0} and {rows[i].level:F0} dBFS");
+            }
+        }
+
+        [Fact]
+        public void Room_noise_below_the_floor_is_excited_far_less_than_the_same_noise_above_it()
+        {
+            const uint rate = 48000;
+            var s = High(2000, 18, 60, ClarityHarmonics.Even);
+            double AddedReNoise(double rmsDbfs)
+            {
+                var input = Noise(Math.Pow(10, rmsDbfs / 20) * Math.Sqrt(3), (int)rate * 2, 21); // uniform: RMS is amp / sqrt 3
+                var output = Run(Make(s, rate, 100, 2900), input, rate);
+                double sx = 0, sd = 0;
+                for (int i = (int)rate / 2; i < input.Length / 2; i++) { double x = input[2 * i], d = output[2 * i] - x; sx += x * x; sd += d * d; }
+                return 10 * Math.Log10(Math.Max(1e-30, sd) / sx);
+            }
+            // White noise at -30 dBFS RMS puts the band well above the floor; at -85 the band's
+            // peak is about 20 dB below it (the band holds a few percent of a white noise's power).
+            double loud = AddedReNoise(-30), quiet = AddedReNoise(-85);
+            _out.WriteLine($"added re the noise: {loud:F1} dB at -30 dBFS, {quiet:F1} dB at -85 dBFS");
+            Assert.True(loud - quiet >= 15, $"noise below the floor was excited only {loud - quiet:F1} dB less than above it");
+        }
+
+        [Fact]
+        public void A_tone_above_the_band_limit_with_nothing_in_the_band_is_not_lifted_to_full_size()
+        {
+            // The relative floor: what the band limit leaks from content above it is not
+            // normalised. An in-band tone and an out-of-band one of the same level, odd, 8 kHz.
+            const uint rate = 8000;
+            var s = High(2000, 24, 100, ClarityHarmonics.Odd);
+            double Added(double f)
+            {
+                var input = Tone(f, 0.3, (int)rate, rate);
+                var output = Run(Make(s, rate), input, rate);
+                double sd = 0;
+                for (int i = (int)rate / 2; i < input.Length / 2; i++) { double d = output[2 * i] - input[2 * i]; sd += d * d; }
+                return 10 * Math.Log10(Math.Max(1e-30, sd / (input.Length / 2 - rate / 2)));
+            }
+            double inBand = Added(800), above = Added(1800);
+            _out.WriteLine($"added: {inBand:F1} dBFS from an in-band tone, {above:F1} dBFS from a tone above the band limit");
+            Assert.True(inBand - above >= 50, $"the leaked tone was excited only {inBand - above:F1} dB less than an in-band one");
         }
 
         // ── fold-back ──

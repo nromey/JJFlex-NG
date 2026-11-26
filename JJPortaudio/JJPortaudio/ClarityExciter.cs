@@ -29,7 +29,7 @@ namespace JJPortaudio
         public bool Enabled { get; }
         /// <summary>The band's corner, Hz: for the high band where the added brightness starts; for the low band the top of the fundamentals it enriches.</summary>
         public float TuneHz { get; }
-        /// <summary>How hard harmonics are made, dB (0 to 24).</summary>
+        /// <summary>How strong the harmonics are, dB (0 to 24): 24 makes them at the level of the band they come from, each decibel less a decibel lower, whatever the microphone level (<see cref="ClarityExciter.HarmonicRatio"/>).</summary>
         public float DriveDb { get; }
         /// <summary>How much of what is made is added back, percent (0 to 100).</summary>
         public float MixPercent { get; }
@@ -341,25 +341,71 @@ namespace JJPortaudio
     /// <see cref="ClarityDesign"/>), a level control, the shaper, the added
     /// path's filter, and the mix. The output is the input plus the bands'
     /// added paths. The dry path is never filtered, so off is exact.</para>
-    /// <para><b>The level control</b> keeps the shaper's argument at about one
-    /// at most (on release it can pass one by the release step, at most about
-    /// 1.0016 at 8 kHz): the band's peak, linked across
-    /// both channels, is HELD for <see cref="HoldMs"/> and then released over
-    /// <see cref="ReleaseMs"/>; the drive gain is lowered to one over that
-    /// peak when drive times peak would pass one. A steady signal's peak is
-    /// refreshed before the hold ends, so its gain is exactly constant and the
-    /// shaper's output is a pure polynomial of the band. A rising level steps
-    /// the gain at the sample that sets a new peak, and a falling one releases
-    /// it; both modulate the band, which makes products beyond the
-    /// polynomial's order (see <see cref="ClarityDesign"/>).</para>
-    /// <para><b>The shapers are harmonic-only.</b> With u the driven band and
-    /// m the running mean of u squared: even is u^2 - m (the second harmonic,
-    /// and the DC that u^2 makes removed by m); odd is u^3 - 1.5 m u (the third
-    /// harmonic; the fundamental u^3 makes cancels exactly for a steady tone).
-    /// Divided by the drive gain they give a harmonic whose ratio to the band
-    /// is u's amplitude (even) or its square (odd): more drive, more harmonic,
-    /// up to the band's own level. The added path's high-pass removes any DC
-    /// that is left.</para>
+    /// <para><b>The level control normalises the band</b> (the level fix,
+    /// 2026-11-26, after the prior-art survey and a real voice showed the
+    /// first design's effect falling a decibel for every decibel the voice
+    /// fell). The band's peak, linked across both channels, is HELD (for
+    /// <see cref="HoldMs"/> in the high band, <see cref="LowBandHoldMs"/> in
+    /// the low, each longer than the longest period its input filter passes)
+    /// and then released over <see cref="ReleaseMs"/>. That held peak, eased
+    /// at the floor (below), is the envelope e. The shaper is fed v = band / e,
+    /// and what it makes is multiplied by e again. So the shaper always works
+    /// on the band at about unit size whatever the microphone level, and the
+    /// harmonic it makes rises and falls LINEARLY with the band: scale the
+    /// input by any factor above the floor and the added path scales by the
+    /// same factor. The argument stays about one at most (v is the band over
+    /// its own held peak; on release it can pass one by the release step, at
+    /// most about 1.0016 at 8 kHz), the same guarantee the first design's
+    /// turn-down-only control gave. A steady signal's peak is refreshed before
+    /// the hold ends, so its envelope is exactly constant and the shaper's
+    /// output is a pure polynomial of the band; a rising level steps the
+    /// envelope at the sample that sets a new peak, and a falling one releases
+    /// it, and both modulate the band, which makes products beyond the
+    /// polynomial's order (see <see cref="ClarityDesign"/>). Before the fix
+    /// that modulation happened only once the drive had pushed the band into
+    /// the control; now it happens at every level above the floor, at the
+    /// size it always had there.</para>
+    /// <para><b>Why a held peak and not a smoothed RMS:</b> the bound. A
+    /// band divided by its own RMS has the band's crest factor as its peak
+    /// argument (three to four for speech in these narrow bands), so the cubic
+    /// would see 30 to 60 times its unit-size output at a peak, and a smoothed
+    /// detector fast enough to follow syllables ripples at twice the band's
+    /// frequency, modulating even a steady tone. The held peak gives an
+    /// argument bounded by one, an exactly constant envelope for a steady
+    /// tone (so the steady-tone fold-back floors are unchanged), an instant
+    /// attack and an 80 ms release that follows syllables.</para>
+    /// <para><b>The floor</b> (<see cref="LevelFloorDbfs"/>, a band peak in
+    /// dBFS): the envelope is sqrt(peak^2 + floor^2), not the peak itself. Well
+    /// above the floor that is the peak (within 0.04 dB at 20 dB above); well
+    /// below it, it is the floor, a constant, so the shaper falls back to a
+    /// plain polynomial of the band and the harmonic falls a decibel for every
+    /// decibel the band falls (even) or two (odd): pauses and room noise are
+    /// not lifted to the band's level. The ease is smooth, never a switch: at
+    /// the floor itself the harmonic sits 3 dB (even) or 6 dB (odd) below its
+    /// setting, and the slope runs continuously from none to one (or two)
+    /// decibels per decibel across about 20 dB.</para>
+    /// <para><b>What drive means</b>: the harmonic's level relative to the band
+    /// it is made from, for a steady tone above the floor:
+    /// <see cref="HarmonicRatio"/>, 10^((drive - 24) / 20). At 24 dB (the top of
+    /// the range) the harmonic is at the band's own level, which is the most
+    /// the first design could ever make; every decibel less is a decibel lower,
+    /// down to 24 dB below the band at zero. Mix then scales it again. Even or
+    /// odd, the drive means the same: the shaper's output is weighted by that
+    /// ratio after it is made, not by driving its input, so the odd shaper's
+    /// harmonic no longer follows the square of the drive. "Both" makes each
+    /// harmonic at half that ratio. A real voice reads lower than a tone at
+    /// the same drive, because its band sits below its held peak between
+    /// peaks and several of its harmonics share the band; what is level
+    /// independent is the ratio at a given drive, not its exact figure.</para>
+    /// <para><b>The shapers are harmonic-only.</b> With v the normalised band
+    /// and m the running mean of v squared: even is 2 (v^2 - m) (the second
+    /// harmonic, the DC that v^2 makes removed by m); odd is 4 (v^3 - 1.5 m v)
+    /// (the third harmonic; the fundamental v^3 makes cancels exactly for a
+    /// steady tone). For a steady unit tone each is a unit harmonic. They
+    /// replace the first design's division by the drive gain: that division
+    /// turned the shaped signal back to the band's scale, which is now the
+    /// multiplication by the envelope. The added path's high-pass removes any
+    /// DC that is left.</para>
     /// <para><b>Publish, never mutate:</b> <see cref="Use(ClarityDesign)"/>
     /// takes a whole immutable design from any thread without allocating; the
     /// audio thread adopts it at its next buffer and cross-fades the added
@@ -399,11 +445,55 @@ namespace JJPortaudio
         /// <summary>How long a change of design, or the stage switching on or off, fades the added path.</summary>
         public const float CrossFadeMs = 20f;
 
-        /// <summary>How long the level control holds a band's peak before releasing it.</summary>
+        /// <summary>How long the level control holds the high band's peak before releasing it (its input starts above 300 Hz, a period under 4 ms).</summary>
         public const float HoldMs = 20f;
+
+        /// <summary>How long the level control holds the low band's peak: longer than one period of its input filter's lowest frequency (<see cref="ClarityDesign.LowBandFloorHz"/>, 33 ms), so a steady low tone's envelope does not release between its peaks.</summary>
+        public const float LowBandHoldMs = 40f;
 
         /// <summary>The level control's release time constant.</summary>
         public const float ReleaseMs = 80f;
+
+        /// <summary>
+        /// The level fix's floor, a band peak in dBFS: below it the envelope
+        /// stops following the band, so pauses and room noise are not lifted
+        /// (see the class remarks). Chosen from the author's live recording
+        /// setup (headset mic), a take of running speech at an everyday
+        /// microphone level (2026-11-25): in its pauses the high band's peak
+        /// sits near -80 dBFS (95th percentile about -60, the tails of words),
+        /// and in speech its median is -35 and its 5th percentile -54. -60 is
+        /// 20 dB above that room and below nearly all speech. A design
+        /// constant for now; it is meant to follow the room's measured floor
+        /// once the room measurement is reliable.
+        /// </summary>
+        public const double LevelFloorDbfs = -60.0;
+
+        /// <summary>The drive at which the harmonic is at the band's own level.</summary>
+        public const float DriveAtBandLevelDb = 24f;
+
+        /// <summary>
+        /// The harmonic's amplitude relative to the band it is made from, for a
+        /// steady tone above <see cref="LevelFloorDbfs"/>, at a drive:
+        /// 10^((drive - <see cref="DriveAtBandLevelDb"/>) / 20). Before mix.
+        /// </summary>
+        public static double HarmonicRatio(float driveDb) => Math.Pow(10.0, (driveDb - DriveAtBandLevelDb) / 20.0);
+
+        private static readonly double FloorSquared = Math.Pow(10.0, LevelFloorDbfs / 10.0);
+
+        /// <summary>
+        /// The relative floor, dB: the envelope is never less than this far
+        /// below the held peak of the band's WIDE signal, the input after the
+        /// band's high-pass and before its band limit. In-band content sits
+        /// well above it (for a tone in the band, wide and band are the same
+        /// signal, and the floor costs 0.004 dB). What the band limit lets
+        /// through from content above it, 40 dB and more down, sits below it,
+        /// so it keeps the first design's polynomial suppression instead of
+        /// being normalised to full size: without this, a 1.8 kHz tone at an
+        /// 8 kHz rate folded back at -54 dBc instead of -115.
+        /// </summary>
+        public const double RelativeFloorDb = -30.0;
+
+        private static readonly double RelativeFloor = Math.Pow(10.0, RelativeFloorDb / 20.0);
 
         private volatile bool _enabled;
         private ClarityDesign _wanted;          // published, any thread
@@ -644,14 +734,16 @@ namespace JJPortaudio
             private readonly BiquadCoefficients[] _co = new BiquadCoefficients[2 * S];
             private readonly BiquadState[] _st = new BiquadState[2 * S * Channels]; // [band][section][channel]
             private readonly bool[] _bandOn = new bool[2];
-            private readonly ClarityHarmonics[] _harm = new ClarityHarmonics[2];
-            private readonly double[] _drive = new double[2];   // linear
+            private readonly double[] _wEven = new double[2];   // the even harmonic's ratio to the band (HarmonicRatio, halved for Both)
+            private readonly double[] _wOdd = new double[2];    // the odd harmonic's
             private readonly double[] _mix = new double[2];     // fraction
             private readonly double[] _peak = new double[2];    // held peak, linked across channels
             private readonly int[] _holdLeft = new int[2];
+            private readonly double[] _peakWide = new double[2];  // held peak before the band limit (after the input high-pass), linked
+            private readonly int[] _holdLeftWide = new int[2];
             private readonly double[] _meanSq = new double[Channels * 2]; // [band][channel]
             private readonly double[] _meanAlpha = new double[2];
-            private int _holdFrames;
+            private readonly int[] _holdFrames = new int[2];
             private double _release;
 
             public bool Active;
@@ -661,7 +753,7 @@ namespace JJPortaudio
             public void ClearState()
             {
                 for (int k = 0; k < _st.Length; k++) _st[k].Clear();
-                for (int b = 0; b < 2; b++) { _peak[b] = 0; _holdLeft[b] = 0; }
+                for (int b = 0; b < 2; b++) { _peak[b] = 0; _holdLeft[b] = 0; _peakWide[b] = 0; _holdLeftWide[b] = 0; }
                 for (int k = 0; k < _meanSq.Length; k++) _meanSq[k] = 0;
             }
 
@@ -670,14 +762,16 @@ namespace JJPortaudio
                 Array.Copy(e._co, _co, _co.Length);
                 Array.Copy(e._st, _st, _st.Length);
                 Array.Copy(e._bandOn, _bandOn, 2);
-                Array.Copy(e._harm, _harm, 2);
-                Array.Copy(e._drive, _drive, 2);
+                Array.Copy(e._wEven, _wEven, 2);
+                Array.Copy(e._wOdd, _wOdd, 2);
                 Array.Copy(e._mix, _mix, 2);
                 Array.Copy(e._peak, _peak, 2);
                 Array.Copy(e._holdLeft, _holdLeft, 2);
+                Array.Copy(e._peakWide, _peakWide, 2);
+                Array.Copy(e._holdLeftWide, _holdLeftWide, 2);
                 Array.Copy(e._meanSq, _meanSq, _meanSq.Length);
                 Array.Copy(e._meanAlpha, _meanAlpha, 2);
-                _holdFrames = e._holdFrames;
+                Array.Copy(e._holdFrames, _holdFrames, 2);
                 _release = e._release;
                 Active = e.Active;
             }
@@ -692,9 +786,10 @@ namespace JJPortaudio
                     ClarityDesign.Compute(d.Settings, d.PassbandLowEdgeHz, d.PassbandHighEdgeHz, rate, _co, d.InputBandLimited);
                 Set(ClarityDesign.HighBand, d.Settings.High, wasActive);
                 Set(ClarityDesign.LowBand, d.Settings.Low, wasActive);
-                _holdFrames = Math.Max(1, (int)(HoldMs * 0.001 * rate));
+                _holdFrames[ClarityDesign.HighBand] = Math.Max(1, (int)(HoldMs * 0.001 * rate));
+                _holdFrames[ClarityDesign.LowBand] = Math.Max(1, (int)(LowBandHoldMs * 0.001 * rate));
                 _release = 1.0 - Math.Exp(-1.0 / (ReleaseMs * 0.001 * rate));
-                // The running mean of u^2: long enough to smooth twice the band's lowest input frequency.
+                // The running mean of v^2: long enough to smooth twice the band's lowest input frequency.
                 _meanAlpha[ClarityDesign.HighBand] = 1.0 - Math.Exp(-1.0 / (0.005 * rate));
                 _meanAlpha[ClarityDesign.LowBand] = 1.0 - Math.Exp(-1.0 / (0.040 * rate));
                 Active = _bandOn[0] || _bandOn[1];
@@ -707,12 +802,13 @@ namespace JJPortaudio
                 {
                     // A band coming on starts from rest.
                     for (int k = 0; k < S * Channels; k++) _st[band * S * Channels + k].Clear();
-                    _peak[band] = 0; _holdLeft[band] = 0;
+                    _peak[band] = 0; _holdLeft[band] = 0; _peakWide[band] = 0; _holdLeftWide[band] = 0;
                     _meanSq[band * Channels] = 0; _meanSq[band * Channels + 1] = 0;
                 }
                 _bandOn[band] = on;
-                _harm[band] = b.Harmonics;
-                _drive[band] = Math.Pow(10.0, b.DriveDb / 20.0);
+                double r = HarmonicRatio(b.DriveDb);
+                _wEven[band] = b.Harmonics switch { ClarityHarmonics.Even => r, ClarityHarmonics.Odd => 0.0, _ => 0.5 * r };
+                _wOdd[band] = b.Harmonics switch { ClarityHarmonics.Odd => r, ClarityHarmonics.Even => 0.0, _ => 0.5 * r };
                 _mix[band] = b.MixPercent / 100.0;
             }
 
@@ -724,23 +820,29 @@ namespace JJPortaudio
                     if (!_bandOn[band]) continue;
                     int c = band * S;
                     int sl = band * S * Channels, sr = sl + S;
-                    // The input filter: what the shaper may be fed.
-                    double bl = xl, br = xr;
-                    for (int k = 0; k < 5; k++)
+                    // The input filter: what the shaper may be fed. Section 0 is its
+                    // high-pass; what leaves it, before the band limit, is the wide signal.
+                    double bl = _st[sl].Step(in _co[c], xl), br = _st[sr].Step(in _co[c], xr);
+                    double w = Math.Max(Math.Abs(bl), Math.Abs(br));
+                    for (int k = 1; k < 5; k++)
                     {
                         bl = _st[sl + k].Step(in _co[c + k], bl);
                         br = _st[sr + k].Step(in _co[c + k], br);
                     }
-                    // The level control: a held peak, linked.
+                    // The level control: the band's held peak, linked, eased at the two floors, is the envelope.
                     double a = Math.Max(Math.Abs(bl), Math.Abs(br));
-                    if (a >= _peak[band]) { _peak[band] = a; _holdLeft[band] = _holdFrames; }
+                    if (a >= _peak[band]) { _peak[band] = a; _holdLeft[band] = _holdFrames[band]; }
                     else if (_holdLeft[band] > 0) _holdLeft[band]--;
                     else _peak[band] -= _peak[band] * _release;
-                    double g = _drive[band];
-                    double pk = _peak[band];
-                    if (g * pk > 1.0) g = 1.0 / pk;
-                    double hl = Shape(band, 0, g * bl, g);
-                    double hr = Shape(band, 1, g * br, g);
+                    if (w >= _peakWide[band]) { _peakWide[band] = w; _holdLeftWide[band] = _holdFrames[band]; }
+                    else if (_holdLeftWide[band] > 0) _holdLeftWide[band]--;
+                    else _peakWide[band] -= _peakWide[band] * _release;
+                    double pk = _peak[band], pw = _peakWide[band] * RelativeFloor;
+                    double e = Math.Sqrt(pk * pk + pw * pw + FloorSquared);
+                    double inv = 1.0 / e;
+                    // Shape the band at unit size, then put it back at the band's scale.
+                    double hl = e * Shape(band, 0, bl * inv);
+                    double hr = e * Shape(band, 1, br * inv);
                     // The added path's filter, then the mix.
                     for (int k = 5; k < S; k++)
                     {
@@ -752,28 +854,30 @@ namespace JJPortaudio
                 }
             }
 
-            /// <summary>The harmonic-only shapers, scaled back by the drive gain.</summary>
-            private double Shape(int band, int ch, double u, double g)
+            /// <summary>
+            /// The harmonic-only shapers on the normalised band v (about unit
+            /// size), each weighted by its ratio to the band (the drive, see
+            /// <see cref="HarmonicRatio"/>). The caller multiplies by the envelope.
+            /// </summary>
+            private double Shape(int band, int ch, double v)
             {
                 int mi = band * Channels + ch;
-                double u2 = u * u;
-                double m = _meanSq[mi] += (u2 - _meanSq[mi]) * _meanAlpha[band];
-                double even = 2.0 * (u2 - m);
-                double odd = 4.0 * (u2 * u - 1.5 * m * u);
-                double h = _harm[band] switch
-                {
-                    ClarityHarmonics.Even => even,
-                    ClarityHarmonics.Odd => odd,
-                    _ => 0.5 * (even + odd),
-                };
-                return h / g;
+                double v2 = v * v;
+                double m = _meanSq[mi] += (v2 - _meanSq[mi]) * _meanAlpha[band];
+                double even = 2.0 * (v2 - m);
+                double odd = 4.0 * (v2 * v - 1.5 * m * v);
+                return _wEven[band] * even + _wOdd[band] * odd;
             }
 
             public void FlushTiny()
             {
                 for (int k = 0; k < _st.Length; k++) _st[k].FlushTiny();
                 for (int k = 0; k < _meanSq.Length; k++) if (_meanSq[k] < 1e-30) _meanSq[k] = 0;
-                for (int b = 0; b < 2; b++) if (_peak[b] < 1e-20) _peak[b] = 0;
+                for (int b = 0; b < 2; b++)
+                {
+                    if (_peak[b] < 1e-20) _peak[b] = 0;
+                    if (_peakWide[b] < 1e-20) _peakWide[b] = 0;
+                }
             }
         }
     }
