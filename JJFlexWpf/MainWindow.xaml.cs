@@ -7617,11 +7617,14 @@ public partial class MainWindow : UserControl
     private void TuneDoorPress() => TunePressFor(RigControl.TuneAskedOrUp);
 
     /// <summary>
-    /// A press that would start the tuner on a rig whose tune power reads 0
-    /// watts (#859). Turning the tuner off is never refused.
+    /// A press that would start the tuner: an Audio Check teardown, no callsign,
+    /// tune power at 0 watts (#859), or the TX band lockout (#1307; the 60 m rule
+    /// is not asked for the tuner). Asked here because the tuner's setter returns
+    /// nothing, so a refusal there was followed by "ATU tuning" (repair round 1 of
+    /// junk box batch 31). Turning the tuner off is never refused.
     /// </summary>
     private bool TunerStartRefused() =>
-        !RigControl.FlexTunerOn && ZeroPowerDoors.RefuseTunePress(RigControl, "the antenna tuner");
+        !RigControl.FlexTunerOn && ZeroPowerDoors.RefuseTunerStart(RigControl, "the antenna tuner");
 
     /// <summary>
     /// Show SWR/tuner status on hover.

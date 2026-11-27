@@ -162,8 +162,94 @@ internal static class ZeroPowerDoors
         return RefuseNoCallsign(rig, door, afterMenu);
     }
 
-    /// <summary>For tests: stands in for the radio's transmit rules verdict at a VOX door.</summary>
-    internal static Func<FlexBase?, TransmitVerdict>? TransmitRulesOverride { get; set; }
+    /// <summary>For tests: stands in for the radio's transmit rules verdict at a door. The
+    /// flag is whether the 60 m rule was asked (false at the antenna tuner's door), so a
+    /// test can show which question a door asked (repair round 1).</summary>
+    internal static Func<FlexBase?, bool, TransmitVerdict>? TransmitRulesOverride { get; set; }
+
+    /// <summary>
+    /// The transmit rules' verdict for a door: the override in a test, else the
+    /// radio's own judge (<see cref="FlexBase.TransmitRulesVerdict"/>). Allowed for no
+    /// radio, or a judge that throws (traced): the chokepoint behind the door asks again.
+    /// </summary>
+    private static TransmitVerdict RulesVerdict(FlexBase? rig, bool sixtyMeterRule, string door)
+    {
+        try
+        {
+            return TransmitRulesOverride?.Invoke(rig, sixtyMeterRule)
+                ?? rig?.TransmitRulesVerdict(sixtyMeterRule) ?? TransmitVerdict.Allowed;
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("ZeroPowerDoors: transmit rules at " + door + ": " + ex.Message, TraceLevel.Warning);
+            return TransmitVerdict.Allowed;
+        }
+    }
+
+    /// <summary>
+    /// The transmit rules' refusal sentence for a door that has the PTT controller
+    /// in hand, or null when it may go ahead (repair round 1 of junk box batch 31).
+    /// The controller's own answer (<see cref="PttSafetyController.TransmitRulesRefusal"/>)
+    /// when there is one; when there is none, the radio's judge itself, the one the
+    /// controller would ask, so a door never skips the rules because the controller
+    /// is null and then announces a send the radio refuses. Says nothing.
+    /// </summary>
+    internal static string? TransmitRulesRefusalAt(PttSafetyController? ptt, FlexBase? rig)
+        => ptt != null ? ptt.TransmitRulesRefusal() : RulesVerdict(rig, sixtyMeterRule: true, "a door with no controller").RefusalSentence();
+
+    /// <summary>
+    /// An operator's press that would start the ANTENNA TUNER (repair round 1 of
+    /// junk box batch 31, the Opus checker's #1307 B1): an Audio Check teardown,
+    /// then no callsign, then tune power at 0 watts, as
+    /// <see cref="RefuseTunePress"/> asks, then the TX band lockout alone (the 60 m
+    /// rule is not asked for the tuner, which raises a tune carrier: the
+    /// orchestrator's decision, night question J4). The tuner's setter refuses in
+    /// the same order and returns nothing, so without this its door said "ATU
+    /// tuning" over the setter's refusal. Never inside <see cref="RefuseTunePress"/>,
+    /// which the tune carrier's doors share: tune is never asked the rules.
+    /// </summary>
+    internal static bool RefuseTunerStart(FlexBase? rig, string door, bool afterMenu = false)
+        => RefuseTeardown(rig, door, afterMenu)
+        || RefuseTunePress(rig, door, afterMenu)
+        || RefuseTransmitRules(rig, door, sixtyMeterRule: false, afterMenu);
+
+    /// <summary>
+    /// The transmit rules refusing a press, said at the door: the reason's own
+    /// sentence, the refusal tone, Critical, as the chokepoint would say it. True
+    /// when refused: the caller must not go on, show or say anything else.
+    /// </summary>
+    internal static bool RefuseTransmitRules(FlexBase? rig, string door, bool sixtyMeterRule, bool afterMenu = false)
+    {
+        var verdict = RulesVerdict(rig, sixtyMeterRule, door);
+        if (verdict.IsAllowed) return false;
+        Answer("transmit rules: " + door, verdict.RefusalSentence() ?? "", afterMenu,
+            SpeechSubject.TransmitKeyRefused, "refused by the transmit rules: ", VerbosityLevel.Critical);
+        return true;
+    }
+
+    /// <summary>
+    /// An Audio Check teardown is putting things back (#835): a press that would
+    /// start the tuner is refused at its door, with the sentence its setter would
+    /// say (repair round 1: <c>FlexTunerOn</c>'s teardown refusal was said and then
+    /// followed by "ATU tuning"). Only for a start; stopping is never refused.
+    /// </summary>
+    private static bool RefuseTeardown(FlexBase? rig, string door, bool afterMenu)
+    {
+        bool tearingDown;
+        try { tearingDown = TeardownOverride?.Invoke(rig) ?? rig?.TeardownInProgress == true; }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("ZeroPowerDoors: teardown: " + ex.Message, TraceLevel.Warning);
+            return false;   // the setter asks again
+        }
+        if (!tearingDown) return false;
+        Answer("teardown: " + door, Lexicon.Get("audio.check.teardown_refuses"), afterMenu,
+            SpeechSubject.TransmitKeyRefused, "refused during an Audio Check teardown: ", VerbosityLevel.Critical);
+        return true;
+    }
+
+    /// <summary>For tests: stands in for the radio's teardown flag at the tuner's door.</summary>
+    internal static Func<FlexBase?, bool>? TeardownOverride { get; set; }
 
     /// <summary>
     /// Turning VOX or break-in ON where the transmit rules (the TX band lockout
@@ -176,16 +262,7 @@ internal static class ZeroPowerDoors
     {
         bool breakIn = WouldTurnOnBreakIn(rig);
         if (!breakIn && !WouldTurnOnSimpleVox(rig)) return false;
-        TransmitVerdict verdict;
-        try
-        {
-            verdict = TransmitRulesOverride?.Invoke(rig) ?? rig?.TransmitRulesVerdict(sixtyMeterRule: true) ?? TransmitVerdict.Allowed;
-        }
-        catch (Exception ex)
-        {
-            Tracing.TraceLine("ZeroPowerDoors: transmit rules: " + ex.Message, TraceLevel.Warning);
-            return false;   // the setter asks again, from the radio's own answer
-        }
+        var verdict = RulesVerdict(rig, sixtyMeterRule: true, door);   // the setter asks again on a failure
         if (verdict.IsAllowed) return false;
         string stays = breakIn ? Lexicon.Get("audio.ptt.break_in_stays_off") : Lexicon.Get("audio.ptt.vox_stays_off");
         Answer("transmit rules: " + door, stays + " " + verdict.RefusalSentence(), afterMenu,

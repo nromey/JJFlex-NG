@@ -1124,7 +1124,10 @@ namespace JJFlexWpf
 
             // The transmit rules: the TX band lockout's frequency and mode
             // (#1310). The sentence says what was wrong and which setting refused.
-            if (TransmitRulesRefusal() is { } rulesRefusal)
+            // Only from Idle, like its neighbours (repair round 1): a repeat
+            // key-down while held keys nothing, and a refusal said then would
+            // be said over a carrier that stays up.
+            if (State == PttState.Idle && TransmitRulesRefusal() is { } rulesRefusal)
             {
                 ScreenReaderOutput.Speak(rulesRefusal, VerbosityLevel.Critical, interrupt: true,
                     subject: Radios.Speech.SpeechSubject.TransmitKeyRefused);

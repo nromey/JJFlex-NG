@@ -24,7 +24,9 @@ namespace Radios
     /// tuner going on (lockout only, no 60 m rule), VOX or break-in going on, both
     /// forms of <c>SendCW</c>, the Fix tool's injected and spoken transmit checks,
     /// and <c>TransmitKillSwitch.RaiseCarrier</c> for MOX. So a route with no door
-    /// of its own (CW typing, the Fix tool) is refused too. Tune, the Fix tool's
+    /// of its own (the Fix tool) is refused too; SendCW(char) is guarded but has no
+    /// caller today: there is no CW typing route in the app, and CW reaches the radio
+    /// only through the message keys (KeyCommands.SendCWMessage). Tune, the Fix tool's
     /// tune check and a tune carrier are never asked (ruled 2026-11-18). An unkey,
     /// tune off, tuner off and VOX off are never refused.</para>
     /// <para><b>A limit:</b> turning VOX or break-in on is judged at that moment
@@ -89,6 +91,37 @@ namespace Radios
             }
             return sentence;
         }
+
+        /// <summary>
+        /// Set only while the automatic tuner's own queued key runs
+        /// (<see cref="KeyForTheTuner"/>), and read by <c>EnqueueKeyOn</c>, so that
+        /// key asks the lockout alone, as the tuner's start did (repair round 1 of
+        /// junk box batch 31). Thread-static, like <c>t_keyAskedHere</c>: the key
+        /// is written synchronously on the queue's thread inside
+        /// <c>WriteAtuStartIfCurrent</c>'s lock, so the marker cannot reach any
+        /// other key.
+        /// </summary>
+        [ThreadStatic] private static bool t_tunerKeyLeavesSixtyMeterRule;
+
+        /// <summary>
+        /// The automatic tuner's key: <c>Transmit = true</c>, the public setter,
+        /// on purpose (so whatever that setter records for a key-down is recorded
+        /// for the tuner's too), with the 60 m rule left out of
+        /// <c>EnqueueKeyOn</c>'s ask. The 60 m rule is not asked for the tuner,
+        /// which raises a tune carrier (the orchestrator's decision, night
+        /// question J4); before this the setter's own ask used the default and
+        /// refused our key while <c>atu start</c> still went out. The marker is
+        /// cleared even when the key throws.
+        /// </summary>
+        private void KeyForTheTuner()
+        {
+            t_tunerKeyLeavesSixtyMeterRule = true;
+            try { Transmit = true; }
+            finally { t_tunerKeyLeavesSixtyMeterRule = false; }
+        }
+
+        /// <summary>For tests: whether the tuner's marker is set on this thread.</summary>
+        internal static bool TunerKeyMarkerSet => t_tunerKeyLeavesSixtyMeterRule;
 
         /// <summary><see cref="TransmitRulesRefusal"/> as yes or no, for a chokepoint.</summary>
         internal bool RefusedByTransmitRules(string what, bool sixtyMeterRule = true, string? spokenPrefix = null)

@@ -348,7 +348,8 @@ internal static class VoiceMessageSender
         // by hand. Resolved per call — the controller is recreated on operator
         // switch and nulled on power-off.
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
-        if (ptt?.TransmitRulesRefusal() is { } rulesRefusal)
+        // Repair round 1: with no controller the radio's judge is asked itself, never skipped.
+        if (ZeroPowerDoors.TransmitRulesRefusalAt(ptt, rig) is { } rulesRefusal)
         {
             Refuse(info, rulesRefusal);   // #1310: the reason's own sentence
             return;
@@ -867,7 +868,8 @@ internal static class VoiceMessageSender
             TuneDoors.RefuseSend();
             return false;
         }
-        if (ptt?.TransmitRulesRefusal() is { } rulesRefusal)
+        // Repair round 1: with no controller the radio's judge is asked itself, never skipped.
+        if (ZeroPowerDoors.TransmitRulesRefusalAt(ptt, rig) is { } rulesRefusal)
         {
             Refuse(info, rulesRefusal);   // #1310: the reason's own sentence
             return false;
@@ -1366,7 +1368,8 @@ internal static class VoiceMessageSender
         }
 
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
-        if (ptt?.TransmitRulesRefusal() is { } rulesRefusal)
+        // Repair round 1: with no controller the radio's judge is asked itself, never skipped.
+        if (ZeroPowerDoors.TransmitRulesRefusalAt(ptt, rig) is { } rulesRefusal)
         {
             RefuseOrHold(info, rulesRefusal);   // #1310: the reason's own sentence
             return;

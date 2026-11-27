@@ -8861,7 +8861,9 @@ namespace Radios
             t_keyAskedHere = null;
             if (RefusedForCheckTeardown("transmit")) return;
             if (RefusedForNoCallsign("transmit")) return;   // #335
-            if (RefusedByTransmitRules("transmit")) return;   // #1307: the lockout and the 60 m rules
+            // #1307: the lockout and the 60 m rules; the automatic tuner's own
+            // queued key asks the lockout only (TunerKeyLeavesSixtyMeterRule).
+            if (RefusedByTransmitRules("transmit", sixtyMeterRule: !t_tunerKeyLeavesSixtyMeterRule)) return;
             if (TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
             // A new transmission, counted under the falling cue's gate before
             // it is queued (repair round 6, #863 S1): a falling cue being
@@ -10485,7 +10487,7 @@ namespace Radios
                             long atuGen = NextAtuStartGeneration();
                             if (value)
                             {
-                                q.Enqueue((FunctionDel)(() => WriteAtuStartIfCurrent(atuGen, "the key", () => { _atuKeyQueuedFor = atuGen; Transmit = true; })), "Transmit");
+                                q.Enqueue((FunctionDel)(() => WriteAtuStartIfCurrent(atuGen, "the key", () => { _atuKeyQueuedFor = atuGen; KeyForTheTuner(); })), "Transmit");
                                 q.Enqueue((FunctionDel)(() =>
                                 {
                                     if (TeardownHeldSilently("automatic tuner start"))

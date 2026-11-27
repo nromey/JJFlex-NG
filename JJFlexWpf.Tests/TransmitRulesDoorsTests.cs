@@ -34,6 +34,7 @@ public sealed class TransmitRulesDoorsTests : IDisposable
     private readonly PttSafetyController _controller;
     private readonly VerbosityLevel _verbosityWas;
     private readonly bool _callsignCheckWas = FlexBase.CallsignCheckOn;
+    private readonly Func<PttSafetyController?>? _pttSourceWas = Dialogs.AudioWorkshopDialog.PttControllerSource;
 
     public TransmitRulesDoorsTests()
     {
@@ -60,6 +61,8 @@ public sealed class TransmitRulesDoorsTests : IDisposable
         ZeroPowerDoors.SimpleVoxOverride = null;
         ZeroPowerDoors.BreakInOverride = null;
         ZeroPowerDoors.TransmitRulesOverride = null;
+        ZeroPowerDoors.TeardownOverride = null;
+        Dialogs.AudioWorkshopDialog.PttControllerSource = _pttSourceWas;
         ZeroPowerDoors.Forget();
         if (_controller.IsTransmitting) _controller.EscapeUnlock();
         _controller.Dispose();
@@ -160,7 +163,7 @@ public sealed class TransmitRulesDoorsTests : IDisposable
     {
         ZeroPowerDoors.SimpleVoxOverride = _ => true;
         ZeroPowerDoors.BreakInOverride = _ => false;
-        ZeroPowerDoors.TransmitRulesOverride = _ => _verdict;
+        ZeroPowerDoors.TransmitRulesOverride = (_, _) => _verdict;
         _verdict = new TransmitVerdict(LockoutReason.Mode);
         var said = Said(() => Assert.True(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX field")));
         Assert.Equal(new[] { Lexicon.Get("audio.ptt.vox_stays_off") + " " + Mode }, said);
@@ -179,17 +182,136 @@ public sealed class TransmitRulesDoorsTests : IDisposable
         Assert.False(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX menu"));
     }
 
+    // ---- repair round 1: a door says only the refusal, and never over a carrier ----
+
+    [Fact]
+    public void A_repeat_key_down_while_held_says_nothing_and_keeps_the_hold_when_the_rules_now_refuse()
+    {
+        _controller.PttDown();
+        Assert.Equal(PttSafetyController.PttState.PttHold, _controller.State);
+        _verdict = TransmitVerdict.LockoutFrequency;   // the slice moved out of privileges while held
+        Assert.Empty(Said(_controller.PttDown));        // a repeat: nothing said over the carrier
+        Assert.Equal(PttSafetyController.PttState.PttHold, _controller.State);
+        _controller.PttUp();
+        Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+        Assert.Equal(new[] { Frequency }, Said(_controller.PttDown));   // positive control: from Idle it refuses
+    }
+
+    private static bool TunerStartRefused(MainWindow main) =>
+        (bool)typeof(MainWindow).GetMethod("TunerStartRefused", Any)!.Invoke(main, null)!;
+
+    private static MainWindow MainWith(FlexBase rig)
+    {
+        var main = (MainWindow)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(MainWindow));
+        main.RigControl = rig;
+        return main;
+    }
+
+    [Fact]
+    public void The_antenna_tuner_s_door_asks_the_lockout_alone_and_says_only_the_refusal()
+    {
+        var asked = new List<bool>();
+        ZeroPowerDoors.TransmitRulesOverride = (_, sixty) => { asked.Add(sixty); return _verdict; };
+        var main = MainWith(_rig);
+        _verdict = TransmitVerdict.LockoutFrequency;
+        bool refused = false;
+        var said = Said(() => refused = TunerStartRefused(main));
+        Assert.True(refused);                              // the press stops: FlexTunerOn is never set
+        Assert.Equal(new[] { Frequency }, said);           // the refusal, and no "ATU tuning"
+        Assert.DoesNotContain(Lexicon.Get("audio.tune.atu_tuning"), said);
+        Assert.Equal(new[] { false }, asked);              // the 60 m rule is not asked for the tuner
+        Assert.False(_rig.FlexTunerOn);
+
+        ZeroPowerDoors.Forget();
+        _verdict = TransmitVerdict.Allowed;                // positive control
+        Assert.False(TunerStartRefused(main));
+    }
+
+    [Fact]
+    public void The_antenna_tuner_s_door_refuses_during_an_Audio_Check_teardown_before_anything_else()
+    {
+        ZeroPowerDoors.TeardownOverride = _ => true;
+        ZeroPowerDoors.TransmitRulesOverride = (_, _) => throw new InvalidOperationException("not reached");
+        var main = MainWith(_rig);
+        bool refused = false;
+        var said = Said(() => refused = TunerStartRefused(main));
+        Assert.True(refused);
+        Assert.Equal(new[] { Lexicon.Get("audio.check.teardown_refuses") }, said);
+        ZeroPowerDoors.Forget();
+        ZeroPowerDoors.TeardownOverride = _ => false;      // positive control
+        ZeroPowerDoors.TransmitRulesOverride = (_, _) => TransmitVerdict.Allowed;
+        Assert.False(TunerStartRefused(main));
+    }
+
+    [Fact]
+    public void The_tune_carrier_s_doors_are_still_never_asked_the_rules()
+    {
+        ZeroPowerDoors.TransmitRulesOverride = (_, _) => throw new InvalidOperationException("tune is never asked");
+        Assert.False(ZeroPowerDoors.RefuseTunePress(_rig, "the tune carrier"));
+    }
+
+    [Fact]
+    public void A_door_with_no_PTT_controller_asks_the_radio_s_judge_itself()
+    {
+        var asked = new List<bool>();
+        ZeroPowerDoors.TransmitRulesOverride = (_, sixty) => { asked.Add(sixty); return _verdict; };
+        _verdict = new TransmitVerdict(LockoutReason.None, SixtyMeterReason.Outside);
+        Assert.Equal(_verdict.RefusalSentence(), ZeroPowerDoors.TransmitRulesRefusalAt(null, _rig));
+        Assert.Equal(new[] { true }, asked);
+        _verdict = TransmitVerdict.Allowed;
+        Assert.Null(ZeroPowerDoors.TransmitRulesRefusalAt(null, _rig));
+        // With a controller, the controller's own answer.
+        _verdict = TransmitVerdict.LockoutFrequency;
+        Assert.Equal(Frequency, ZeroPowerDoors.TransmitRulesRefusalAt(_controller, _rig));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_CW_message_the_rules_refuse_says_only_the_refusal_and_nothing_is_sent_shown_or_said_as_sending(bool withController)
+    {
+        Dialogs.AudioWorkshopDialog.PttControllerSource = () => withController ? _controller : null;
+        ZeroPowerDoors.TransmitRulesOverride = (_, _) => _verdict;
+        typeof(FlexBase).GetField("_RXMode", Any)!.SetValue(_rig, "CW");
+        int sent = 0, shown = 0;
+        var context = new KeyCommandContext
+        {
+            GetRigControl = () => _rig,
+            GetCWText = () => new[] { new CWMessageItem(System.Windows.Forms.Keys.F1, "CQ TEST", "CQ") },
+            SendCW = _ => sent++,
+            WriteTextX = (_, _, _, _) => shown++,
+        };
+        var keys = new KeyCommands(context, false) { CommandId = (CommandValues)KeyCommandConstants.FirstMessageCommandValue };
+        var send = typeof(KeyCommands).GetMethod("SendCWMessage", Any)!;
+
+        _verdict = new TransmitVerdict(LockoutReason.None, SixtyMeterReason.Outside);
+        var said = Said(() => send.Invoke(keys, null));
+        Assert.Equal(new[] { _verdict.RefusalSentence()! }, said);
+        Assert.Equal(0, sent);
+        Assert.Equal(0, shown);
+
+        ZeroPowerDoors.Forget();
+        _verdict = TransmitVerdict.Allowed;                // positive control: the same key sends
+        said = Said(() => send.Invoke(keys, null));
+        Assert.Equal(1, sent);
+        Assert.Equal(1, shown);
+        Assert.Contains(Lexicon.Get("settings.cw.sending", ("label", "CQ")), said);
+    }
+
     [Fact]
     public void Every_voice_send_door_and_recorder_playback_ask_the_same_check()
     {
         string sender = Source("VoiceMessageSender.cs");
-        Assert.Equal(3, Occurrences(sender, "ptt?.TransmitRulesRefusal() is { } rulesRefusal"));
+        // Repair round 1: through the helper that asks the radio's judge itself when the controller is null.
+        Assert.Equal(3, Occurrences(sender, "ZeroPowerDoors.TransmitRulesRefusalAt(ptt, rig) is { } rulesRefusal"));
+        Assert.DoesNotContain("ptt?.TransmitRulesRefusal()", sender, StringComparison.Ordinal);
         Assert.DoesNotContain("audio.ptt.blocked_by_license", sender, StringComparison.Ordinal);
         Assert.DoesNotContain("CanTransmitHereCheck", sender, StringComparison.Ordinal);
 
         string ptt = Source("PttSafetyController.cs");
         Assert.Contains("(CanTransmitHereCheck?.Invoke() ?? true);", ptt, StringComparison.Ordinal);   // recorder playback, unchanged
-        Assert.Equal(2, Occurrences(ptt, "if (TransmitRulesRefusal() is { } rulesRefusal)"));
+        Assert.Equal(1, Occurrences(ptt, "if (TransmitRulesRefusal() is { } rulesRefusal)"));   // the lock
+        Assert.Equal(1, Occurrences(ptt, "if (State == PttState.Idle && TransmitRulesRefusal() is { } rulesRefusal)"));   // push to talk
         // No door names the frequency sentence's key itself any more (built, so
         // the lexicon's key scan does not read this line as a key).
         Assert.DoesNotContain("\"" + string.Join(".", "audio", "ptt", "blocked_by_license") + "\"", ptt, StringComparison.Ordinal);

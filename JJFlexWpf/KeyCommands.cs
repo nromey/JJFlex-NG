@@ -4088,6 +4088,19 @@ public class KeyCommands
                 }
                 // A rig reading 0 watts (#859), asked here for the same reason.
                 if (ZeroPowerDoors.RefuseTransmitPress(rig, "a CW message")) break;
+                // The transmit rules (#1307, repair round 1 of junk box batch 31),
+                // for the same reason: the rig's SendCW refuses, its answer is
+                // discarded, and this would then show the message and say
+                // "Sending". With no PTT controller the radio's judge is asked
+                // itself, never skipped.
+                if (ZeroPowerDoors.TransmitRulesRefusalAt(ptt, rig) is { } rulesRefusal)
+                {
+                    _context.Trace("SendCWMessage: the message key \"" + label + "\" was refused by the transmit rules; nothing sent, shown or said as sending");
+                    Radios.ScreenReaderOutput.Speak(rulesRefusal, Radios.Speech.SpeechIntent.Interrupt, Radios.VerbosityLevel.Critical,
+                        subject: Radios.Speech.SpeechSubject.MessageKey);
+                    EarconPlayer.Warning2Beep();
+                    break;
+                }
                 string msg = item.Message;
                 if (msg.Length > 0 && msg[^1] != ' ')
                     msg += " ";

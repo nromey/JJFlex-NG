@@ -109,6 +109,75 @@ public sealed class TransmitRulesChokepointTests : IDisposable
         c.F.Rig.FlexTunerOn = true;
         RunQueue(c);
         Assert.True(Sent(c, command) > before);
+        // Repair round 1 (the Opus checker's N5): off, really. With the rules
+        // refusing again, turning the tuner off is never refused, nor asked.
+        Assert.True(c.F.Rig.FlexTunerOn);
+        _verdict = Refused;
+        _asked = 0;
+        c.F.Rig.FlexTunerOn = false;
+        RunQueue(c);
+        Assert.False(c.F.Rig.FlexTunerOn);
+        Assert.Equal(0, _asked);
+    }
+
+    /// <summary>
+    /// Repair round 1 (Codex's and the Opus checker's #1307 blocker): the
+    /// automatic tuner's own queued key, <c>Transmit = true</c>, reached
+    /// <c>EnqueueKeyOn</c> asking the 60 m rule, so with the lockout off and the
+    /// 60 m rule refusing, our key was refused and spoken while <c>atu start</c>
+    /// still went out. Judged here by the real pure judge
+    /// (<see cref="TransmitRules.Judge"/>) on every US operator's defaults, lockout
+    /// off and the box on, for a transmit slice on 60 m between the channels.
+    /// </summary>
+    [Fact]
+    public void The_automatic_tuner_s_own_key_asks_the_lockout_alone_so_its_key_and_its_start_both_go_out()
+    {
+        using var c = new RadioCase();
+        var license = new LicenseConfig { LicenseClass = HamBands.Bands.Licenses.extra, Country = "US" };
+        Assert.False(license.TxLockout);
+        Assert.True(license.EnforceTxRules);
+        var between = new TransmitSliceReading(5_340_000, "USB", 100, 2800) { TxFilterLow = 100, TxFilterHigh = 2900 };
+        var asked = new System.Collections.Generic.List<bool>();
+        var markerWhenAsked = new System.Collections.Generic.List<bool>();
+        c.F.Rig.Callouts.JudgeTransmitHere = sixty =>
+        {
+            asked.Add(sixty);
+            markerWhenAsked.Add(FlexBase.TunerKeyMarkerSet);
+            return TransmitRules.Judge(license, between, 0, 0, 0, sixty, out _, out _, out _);
+        };
+        Assert.False(c.F.Rig.TransmitRulesVerdict(sixtyMeterRule: true).IsAllowed);   // positive control: the rule refuses here
+        asked.Clear(); markerWhenAsked.Clear();
+
+        typeof(FlexBase).GetField("_FlexTunerType", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(c.F.Rig, FlexBase.FlexTunerTypes.auto);
+        c.F.Rig.FlexTunerOn = true;
+        RunQueue(c);
+
+        Assert.Equal(new[] { false, false }, asked);        // the setter's ask, then the queued key's
+        Assert.Equal(new[] { false, true }, markerWhenAsked);
+        Assert.Equal(1, Sent(c, "xmit 1"));
+        Assert.Equal(1, Sent(c, "atu start"));
+        Assert.True(c.F.Rig.FlexTunerOn);
+        Assert.False(FlexBase.TunerKeyMarkerSet);
+
+        // Any other key still asks the 60 m rule, and is refused here.
+        asked.Clear();
+        c.F.Rig.FlexTunerOn = false;
+        RunQueue(c);
+        c.F.Rig.Transmit = true;
+        RunQueue(c);
+        Assert.Equal(new[] { true }, asked);
+        Assert.Equal(1, Sent(c, "xmit 1"));
+    }
+
+    [Fact]
+    public void The_tuner_s_marker_is_cleared_even_when_its_key_throws()
+    {
+        // A radio object with nothing initialised: its Transmit setter throws.
+        var rig = (FlexBase)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(FlexBase));
+        var key = typeof(FlexBase).GetMethod("KeyForTheTuner", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        Assert.Throws<System.Reflection.TargetInvocationException>(() => key.Invoke(rig, null));
+        Assert.False(FlexBase.TunerKeyMarkerSet);
     }
 
     [Fact]
@@ -158,6 +227,14 @@ public sealed class TransmitRulesChokepointTests : IDisposable
         c.F.Rig.Vox = FlexBase.OffOnValues.on;
         RunQueue(c);
         Assert.True(c.F.Vendor.Radio.CWBreakIn);
+        // Repair round 1 (the Opus checker's N5): off, really. Break-in off is
+        // never refused, nor asked, with the rules refusing.
+        _verdict = Refused;
+        _asked = 0;
+        c.F.Rig.Vox = FlexBase.OffOnValues.off;
+        RunQueue(c);
+        Assert.False(c.F.Vendor.Radio.CWBreakIn);
+        Assert.Equal(0, _asked);
     }
 
     [Fact]
@@ -211,7 +288,13 @@ public sealed class TransmitRulesChokepointTests : IDisposable
     public void Every_chokepoint_asks_and_the_tune_routes_do_not()
     {
         string flex = Src("Radios/FlexBase.cs");
-        Assert.Contains("if (RefusedForNoCallsign(\"transmit\")) return;   // #335\n            if (RefusedByTransmitRules(\"transmit\")) return;", flex, StringComparison.Ordinal);
+        // Repair round 1: the tuner's own queued key leaves the 60 m rule out; every other key asks
+        // it, right after the callsign.
+        int callsign = flex.IndexOf("if (RefusedForNoCallsign(\"transmit\")) return;   // #335\n", StringComparison.Ordinal);
+        int rules = flex.IndexOf("if (RefusedByTransmitRules(\"transmit\", sixtyMeterRule: !t_tunerKeyLeavesSixtyMeterRule)) return;",
+            Math.Max(callsign, 0), StringComparison.Ordinal);
+        Assert.True(callsign > 0 && rules > callsign && rules - callsign < 400, "EnqueueKeyOn asks the rules right after the callsign");
+        Assert.Contains("_atuKeyQueuedFor = atuGen; KeyForTheTuner();", flex, StringComparison.Ordinal);
         Assert.Contains("if (value && RefusedByTransmitRules(\"antenna tuner\", sixtyMeterRule: false)) return;", flex, StringComparison.Ordinal);
         Assert.Contains("if (RefusedByTransmitRules(\"a CW message\")) return false;", flex, StringComparison.Ordinal);
         Assert.Contains("if (RefusedByTransmitRules(\"CW typing\")) return false;", flex, StringComparison.Ordinal);
