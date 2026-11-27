@@ -9,6 +9,32 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-11-27 (COVERS 2026-11-26 11:35 TO 2026-11-27 06:40, MEASURED FROM `03e75ef5`) — BATCHES 28 TO 30 GET NOEL'S WORDS; JUNK BOX BATCH 31 BUILT THROUGH THREE REPAIR ROUNDS, EVERY CHECK MERGE; CW MESSAGE KEYS FOUND SILENT SINCE FEBRUARY (BY READING); SPRINT 49 CLARITY, EXPANDER AND NOISE KEYS BUILT; THE THIRTEENTH NIGHT MODE
+
+*2026-11-26 was a working day; Noel finished the batch 28 to 30 sheets in the evening and started night mode at 21:11 in the junk box window. Two windows ran: junk box and sound processing. He said "morning" at 06:23; the sound window replied "received" and "wrapped up".*
+
+**Main:** unchanged at `03e75ef5`; nothing merged. **A stray uncommitted `LogEntry.vb` (nine lines) sits in the main checkout**: batch 31's repair 3 builder ran a relative-path edit from the default folder; its undo was refused by the permissions, and the orchestrator left it for Noel rather than revert it on the agent's behalf. Not staged by this seal.
+
+**Junk box (unmerged):**
+- **Batches 28 to 30** got Noel's approved words (`bc8aa837`, `94002a80`, `e557160c`), Codex having made his own edits ship-ready; batch 30 item 13's repair (with no radio, the port boxes keep their plain labels). Stacked on `junkbox/2026-11-26-stack` (`d80f0fb1`). The batch 30 harness read of the Network tab is still owed, and #1355 is Noel's call.
+- **Batch 31** (`junkbox/2026-11-26-batch-31` at `c7bc7272`, +5,428 / -212 on the stack): Noel's callsign and lockout rulings. The US band table from 2 m up and the LF bands (#1282); all five classes, Novice kept as Novice (#1309); the band words (#1312); the lockout judges mode (#1310); the 60 m rules really enforced, on by default (#1161); the lockout and 60 m rules on every route the callsign check asks on, except tune (#1307); the meter stream's frequency and width (#758); verbosity and filter presets with no radio (#1339, #1341). **Three repair rounds**, every brief read cold (repair 2's twice): the ownership principle (the lockout owns class privileges, the 60 m box owns channels, dials and width), CW judged at 150 Hz, the lockout judging sideband by the transmit filter, tuner and CW message doors that say only the refusal, the ADIF band key for export and duplicate checking, and the duplicate warning never borrowing the previous contact's band (found by an integration pass, confirmed by a probe running the real code). **Every check MERGE AFTER CHECKS** (Codex on every fix; Opus second checks on the transmit fixes). Codex worded every draft; **Noel's sheet: `for-claude/2026-11-27-junkbox-b31-sheet.md`.** Owed before merge: the harness walk (held all night; that was a miss, night time is the hands-off slot), the sheet, the words placed.
+- **#1364, found by reading and confirmed across every branch:** `globals.Power` has not been set True since `456fa3d8` (2026-02-15), so a CW message key says "Sending" and sends nothing, the full log form never fills frequency, band or mode, and two scan commands open nothing; 0 `charSent:` lines in 1,310 traces. Design note and bench plan: `planning/readings/2026-11-27-design-note-1364-power-flag.md`. One dit into the dummy load confirms it.
+- Night questions J1 to J10 (`for-noel/2026-11-26-night-questions.md`); J9 (the 18 and 26 November tuner rulings disagree) and J10 (the 60 m rules on for every operator, because the country is always US) are new.
+
+**Sprint 49 (sound processing window), all local, none merged:**
+- `sprint49/clarity-level-2` (+1,526 / -105): Clarity's first commit reworded, defaults drive 20 and mix 50, and a suggest pass that predicts its lift. `sprint49/expander-floor` (+984 / -76): the expander closes at its defaults (#1349). `sprint49/noise-keys` (+1,185 / -12): Ctrl+E, Ctrl+Shift+E, Ctrl+K, Ctrl+L, Ctrl+P and Shift+Alt+L in the noise layer.
+- Codex checked all three: each MERGE AFTER FIXES (the expander's stronger settings fall short on varying noise, three blockers; Clarity's offer thrown away near mix 100; the noise keys' two-second echo window). Filed on #1349, #736, #490 and #1278.
+- The speech processor at normal drive costs no power (#1278); full drive untested. #1351 and #1352 filed. The second voice session's script and helper (`JJFlex-private/tools/voice-session/`), the measurement brief draft, and NVIDIA's runtime note are written.
+- A firewall prompt from a new bench folder is still open on the desktop (night mode cannot answer it; Cancel is fine).
+
+**Seal checks:** no vulnerable packages; memory drift, the two new entries flag only branch-only symbols; Codex instruction tests 5 of 5, prompt check positive, sandbox healthy; register intake, 16 entries opened since the last seal all targeted and prioritized, 0 junk box entries unprioritized (302 junk box, 717 open); 250 for-claude entries archived to the NAS (`2026-W47-2`); NVDA logs archived; backups run (memory, AppData, Claude state, dev mirror, private). The nightly promote is skipped: no new debug build, and batch 31's transmit changes are unbenched.
+
+**Next:** Noel's batch 31 sheet and J9, J10; the harness walk on batch 31 and batch 30's Network tab; the #1364 bench press; the Sprint 49 repair rounds; the merges on his word.
+
+### Rigmeter snapshot — end of 2026-11-27
+- **Main only**, since `03e75ef5`: 0 commits. The night's code is on branches: batch 31 +5,428 / -212 across 62 files; Sprint 49 +3,695 / -193 across 39 files; batches 28 to 30's words +182 / -92.
+- Snapshot: `historical\stats\2026-11-26-03e75ef5.json` on the NAS.
+
 ## END-OF-DAY SEAL — 2026-11-26 (COVERS 2026-11-25 05:55 TO 2026-11-26 11:35, MEASURED FROM `a5e87898`) — BATCH 30'S REPAIRS AND WORDS; JJ CLARITY MEASURED ON A REAL VOICE AND ITS LEVEL FIX BUILT; THE TWELFTH NIGHT MODE
 
 *2026-11-25 was a working day; night mode ran from 22:19 with one window, sound processing. Noel said "morning" at 10:37 in that window; no other window had been in night mode, so none was woken. This seal measures from the previous seal's commit.*
