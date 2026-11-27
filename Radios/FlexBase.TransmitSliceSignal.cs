@@ -17,9 +17,10 @@ namespace Radios
         /// it (signed), and the radio's transmit filter, which FlexLib clamps at 0
         /// or above, so it carries no side. For USB, LSB, Digital USB and Digital
         /// LSB the lockout judges the TRANSMIT filter, placed on the mode's side,
-        /// with the app's default when it is unreported; for every other mode the
-        /// slice's own filter (<see cref="TransmitBandLockout.JudgedEdges"/>, repair
-        /// round 1 of junk box batch 31). The 60 m rule judges the transmit filter.
+        /// with the app's default when it is unreported; CW at a fixed 150 Hz (repair
+        /// round 2); for every other mode the slice's own filter
+        /// (<see cref="TransmitBandLockout.JudgedEdges"/>, repair round 1 of junk box
+        /// batch 31). The 60 m rule judges the transmit filter.
         /// The frequency is the one <see cref="TXFrequency"/> reads for the
         /// designated slice, a tune still on its way included.
         /// <para><b>With XIT on, the frequency carries the XIT offset</b> (#1194):

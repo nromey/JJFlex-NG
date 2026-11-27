@@ -119,11 +119,86 @@ public sealed class LockoutModeTests
         Assert.False(TransmitBandLockout.Allows(seam, "CW", -250, 250, cls));
     }
 
+    /// <summary>
+    /// Renamed in repair round 2: this calls <see cref="TransmitBandLockout.AllowsReason"/>
+    /// with fixed plus and minus 250 Hz edges, so it pins the ARITHMETIC (a signal
+    /// that straddles the edge of the privileges is a frequency refusal), not what
+    /// the app now does with CW there. Since repair round 2 the app's
+    /// <see cref="TransmitBandLockout.JudgeReason"/> judges CW at 150 Hz and admits
+    /// both; see <see cref="CW_100_hertz_inside_the_edge_is_admitted_by_the_app_s_judge_at_150_hertz"/>.
+    /// </summary>
     [Fact]
-    public void CW_straddling_the_edge_of_the_privileges_is_still_refused_for_the_frequency()
+    public void A_CW_signal_500_hertz_wide_straddling_the_edge_of_the_privileges_is_refused_for_the_frequency()
     {
         Assert.Equal(LockoutReason.Frequency, Judge(14_000_100, "CW", Extra));
         Assert.Equal(LockoutReason.Frequency, Judge(14_025_100, "CW", General));
+    }
+
+    // ---- repair round 2: the app's judge takes CW as 150 Hz on every band ----
+    // A TRANSMIT-PATH POLICY CHANGE, the orchestrator's decision, awaiting Noel
+    // (night question J4). AM, SAM, DSB, FreeDV, the FM modes, RTTY and an
+    // unrecognised mode keep the slice's own filter.
+
+    private static LockoutReason Sent(ulong hz, string mode, int sliceLow, int sliceHigh, Bands.Licenses license,
+        int txLow = 100, int txHigh = 2900) =>
+        TransmitBandLockout.JudgeReason(new TransmitSliceReading(hz, mode, sliceLow, sliceHigh) { TxFilterLow = txLow, TxFilterHigh = txHigh },
+            0, 0, 0, license, out _, out _);
+
+    /// <summary>The twin of the renamed test above, through the app's judge.</summary>
+    [Fact]
+    public void CW_100_hertz_inside_the_edge_is_admitted_by_the_app_s_judge_at_150_hertz()
+    {
+        Assert.Equal(LockoutReason.None, Sent(14_000_100, "CW", -250, 250, Extra));
+        Assert.Equal(LockoutReason.None, Sent(14_025_100, "CW", -250, 250, General));
+        Assert.Equal(LockoutReason.Frequency, Sent(14_000_050, "CW", -250, 250, Extra));   // 75 Hz is still too close
+    }
+
+    [Theory]
+    [InlineData(5_351_600UL)]
+    [InlineData(5_366_400UL)]
+    public void CW_just_inside_the_60_metre_segment_with_the_Normal_preset_is_admitted_by_the_lockout(ulong hz)
+    {
+        // The shipped Normal CW preset, minus 250 to plus 250 Hz.
+        Assert.Equal(LockoutReason.None, Sent(hz, "CW", -250, 250, General));
+        Assert.Equal(LockoutReason.None, Sent(hz, "CW", -250, 250, Extra));
+    }
+
+    [Fact]
+    public void An_Extra_s_CW_at_the_bottom_of_40_metres_is_judged_at_150_hertz()
+    {
+        Assert.Equal(LockoutReason.None, Sent(7_000_200, "CW", -250, 250, Extra));
+        Assert.Equal(LockoutReason.Frequency, Sent(7_000_050, "CW", -250, 250, Extra));
+        // The Monitor preset (plus and minus 2 kHz) no longer decides it either.
+        Assert.Equal(LockoutReason.None, Sent(7_000_200, "CW", -2000, 2000, Extra));
+    }
+
+    [Fact]
+    public void CW_with_the_Tight_preset_is_still_judged_at_150_hertz()
+    {
+        // Tight is minus 50 to plus 50 Hz; the judgement is 150 Hz whatever the slice's filter.
+        Assert.Equal(LockoutReason.Frequency, Sent(7_000_060, "CW", -50, 50, Extra));
+        Assert.Equal(LockoutReason.None, Sent(7_000_075, "CW", -50, 50, Extra));
+    }
+
+    [Fact]
+    public void AME_is_phone_judged_like_AM_by_the_slice_filter()
+    {
+        Assert.Equal(TransmitBandLockout.EmissionKind.OtherPhone, TransmitBandLockout.KindOf("AME"));
+        // Like AM: refused in a Technician's single-sideband 10 m segment, admitted for a General.
+        Assert.Equal(Sent(28_400_000, "AM", -3000, 3000, Technician), Sent(28_400_000, "AME", -3000, 3000, Technician));
+        Assert.Equal(LockoutReason.Mode, Sent(28_400_000, "AME", -3000, 3000, Technician));
+        Assert.Equal(LockoutReason.None, Sent(28_400_000, "AME", -3000, 3000, General));
+        // By the slice filter, not the transmit filter: a 3 kHz slice filter at a 60 m centre spills the channel.
+        Assert.Equal(LockoutReason.Frequency, Sent(5_332_000, "AME", -3000, 3000, General, 100, 1200));
+    }
+
+    [Fact]
+    public void AM_and_the_other_slice_filter_modes_did_not_move()
+    {
+        // AM, SAM, DSB, FreeDV, FM and RTTY still judged by the slice filter: a narrow transmit
+        // filter does not narrow them.
+        foreach (var mode in new[] { "AM", "SAM", "DSB", "FDV", "FM", "RTTY" })
+            Assert.Equal(LockoutReason.Frequency, Sent(5_332_000, mode, -3000, 3000, General, 100, 1200));
     }
 
     // ---- frequency, and what is never a mode refusal ----

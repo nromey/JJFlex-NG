@@ -408,6 +408,18 @@ public sealed class SixtyMeterTransmitRuleTests
         Assert.Equal(SixtyMeterReason.Outside, Judge(hz, mode, 100, 1200));
 
     [Fact]
+    public void AME_is_judged_like_AM_by_the_60_metre_rule()
+    {
+        // Repair round 2: AME was unknown, so judged on its dial alone, and admitted at a
+        // channel centre and anywhere in the segment whatever its width.
+        Assert.Equal(SixtyMeterReason.ChannelMode, Judge(5_332_000, "AME"));
+        Assert.Equal(SixtyMeterReason.Emission, Judge(5_357_000, "AME"));          // 5.8 kHz with the default filter
+        Assert.Equal(SixtyMeterReason.None, Judge(5_357_000, "AME", 100, 1200));   // narrow, like narrow AM
+        foreach (var (hz, low, high) in new[] { (5_332_000UL, 100, 2900), (5_357_000UL, 100, 2900), (5_357_000UL, 100, 1200) })
+            Assert.Equal(Judge(hz, "AM", low, high), Judge(hz, "AME", low, high));
+    }
+
+    [Fact]
     public void LSB_in_the_gap_with_the_default_filter_is_outside()
     {
         Assert.Equal(SixtyMeterReason.Outside, Judge(5_351_000, "LSB"));

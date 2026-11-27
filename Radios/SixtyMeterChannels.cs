@@ -573,8 +573,10 @@ namespace Radios
         /// extrapolation, the orchestrator's decision (repair round 1 of junk box
         /// batch 31). Never the 500 Hz of <see cref="NominalEmission"/>, which is a
         /// navigation margin and refused lawful CW 100 Hz inside the segment.
+        /// Shared with the TX band lockout, which judges CW at this width on every
+        /// band (<see cref="TransmitBandLockout.JudgedEdges"/>, repair round 2).
         /// </summary>
-        private const long CwWidthHz = 150;
+        internal const long CwWidthHz = 150;
 
         /// <summary>
         /// Where the transmitted signal sits, the judge's own emission model:
@@ -584,7 +586,7 @@ namespace Radios
         /// <remarks>
         /// <para>USB, Digital USB, FreeDV and FreeDV upper: the transmit filter
         /// above the carrier. LSB, Digital LSB and FreeDV lower: below it. AM,
-        /// SAM and DSB: the carrier plus and minus the filter's high edge. With
+        /// SAM, DSB and AME: the carrier plus and minus the filter's high edge. With
         /// the filter not reported (both edges 0), the app's default transmit
         /// filter, 100 to 2,900 Hz (<see cref="TransmitBandLockout.TransmitFilterOrDefault"/>),
         /// marked as assumed.</para>
@@ -619,6 +621,7 @@ namespace Radios
                 case "AM":
                 case "SAM":
                 case "DSB":
+                case "AME":   // FlexLib's other AM-family mode (repair round 2), judged like AM
                     list.Add((c - hi, c + hi, filter));
                     break;
                 case "CW":

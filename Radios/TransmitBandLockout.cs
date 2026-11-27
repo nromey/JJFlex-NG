@@ -29,8 +29,10 @@ namespace Radios
         /// (at or above 0, so it carries no side; the mode says which side). Read
         /// for the 60 m rule's emission judgement (#1161), and by the lockout for
         /// USB, LSB, Digital USB and Digital LSB only
-        /// (<see cref="TransmitBandLockout.JudgedEdges"/>, repair round 1). 0 with
-        /// <see cref="TxFilterHigh"/> 0 means not reported.
+        /// (<see cref="TransmitBandLockout.JudgedEdges"/>, repair round 1; CW is
+        /// judged at a fixed 150 Hz since repair round 2, and every other mode by the
+        /// slice's own filter). 0 with <see cref="TxFilterHigh"/> 0 means not
+        /// reported.
         /// </summary>
         public int TxFilterLow { get; init; }
 
@@ -54,9 +56,10 @@ namespace Radios
     /// the edges they are given. <see cref="JudgeReason"/>, the judge the app runs,
     /// gives them the radio's transmit filter for USB, LSB, Digital USB and Digital
     /// LSB, placed on the mode's side because FlexLib clamps
-    /// <c>Radio.TXFilterLow</c> at 0 or above and so carries no side, and the
-    /// transmit slice's own filter for every other mode (<see cref="JudgedEdges"/>,
-    /// repair round 1 of junk box batch 31).</para>
+    /// <c>Radio.TXFilterLow</c> at 0 or above and so carries no side (repair
+    /// round 1 of junk box batch 31); CW as 150 Hz centred on the carrier (repair
+    /// round 2); and the transmit slice's own filter for every other mode
+    /// (<see cref="JudgedEdges"/>).</para>
     /// <para><b>No transmit slice of ours</b> (<c>TXFrequency</c> reads 0, for
     /// instance while another client holds transmit): judged exactly as before
     /// this change, the selected slice's frequency and filter, and the caller
@@ -131,7 +134,8 @@ namespace Radios
             Cw,
             /// <summary>Single-sideband voice, J3E (USB, LSB).</summary>
             SsbPhone,
-            /// <summary>Any other phone (97.3(c)(5)): AM, SAM, DSB, the FM modes,
+            /// <summary>Any other phone (97.3(c)(5)): AM, SAM, DSB, AME (FlexLib's
+            /// other AM-family mode, known since repair round 2), the FM modes,
             /// D-STAR and FreeDV.</summary>
             OtherPhone,
             /// <summary>A sound-card digital mode (DIGU, DIGL): data, or image
@@ -169,7 +173,7 @@ namespace Radios
             {
                 "CW" => EmissionKind.Cw,
                 "USB" or "LSB" => EmissionKind.SsbPhone,
-                "AM" or "SAM" or "DSB" or "FM" or "NFM" or "DFM" or "DSTR" => EmissionKind.OtherPhone,
+                "AM" or "SAM" or "DSB" or "AME" or "FM" or "NFM" or "DFM" or "DSTR" => EmissionKind.OtherPhone,
                 "DIGU" or "DIGL" => EmissionKind.DataOrImage,
                 "RTTY" => EmissionKind.Rtty,
                 _ => null,
@@ -258,8 +262,9 @@ namespace Radios
         /// note): for USB, LSB, Digital USB and Digital LSB, the radio's TRANSMIT
         /// filter, unsigned, which <see cref="SignalExtent"/> places on the mode's
         /// side, or the app's default when it is not reported
-        /// (<see cref="TransmitFilterOrDefault"/>); for every other mode, the slice's
-        /// own filter, as before.
+        /// (<see cref="TransmitFilterOrDefault"/>); for CW, 150 Hz centred on the
+        /// carrier (repair round 2); for every other mode, the slice's own filter,
+        /// as before.
         /// </summary>
         /// <remarks>
         /// <para>A sideband signal is shaped by the transmit filter, so judging it by
@@ -270,7 +275,20 @@ namespace Radios
         /// or above and so carries no side, is answered for these four modes by the
         /// mode giving the side. It is not answered for the rest: an FM signal's width
         /// comes from its deviation, which no transmit filter describes, so FM, AM,
-        /// CW and the others keep the slice filter.</para>
+        /// SAM, DSB, AME, FreeDV, RTTY and an unrecognised mode keep the slice
+        /// filter.</para>
+        /// <para><b>CW at 150 Hz on every band</b> (repair round 2 of junk box
+        /// batch 31): a TRANSMIT-PATH POLICY CHANGE, the orchestrator's decision,
+        /// awaiting Noel in night question J4. The slice's receive filter is not
+        /// the CW signal (the shipped Normal preset is plus and minus 250 Hz, the
+        /// Monitor preset 2 kHz), so lawful CW within a few hundred hertz of a
+        /// privilege edge was refused. 150HA1A, the designator 97.303(h)(3) gives
+        /// for CW on the 60 m channels, is used everywhere, the same width the 60 m
+        /// rule uses (<see cref="SixtyMeterChannels.CwWidthHz"/>, one value). No
+        /// class gains a mode anywhere: CW is permitted in every division already
+        /// (<see cref="Permits"/>, 97.305(a)); only signals near an edge change, CW
+        /// within 75 Hz to 1,925 Hz of it newly admitted, and CW with a filter
+        /// narrower than 150 Hz near an edge newly refused.</para>
         /// <para><b>Two orchestrator's decisions</b> (night question J4): the
         /// unreported fallback (100 to 2,900 Hz) now applies to the lockout on every
         /// band, not only 60 m; and for Digital USB and Digital LSB this rests on the
@@ -288,6 +306,8 @@ namespace Radios
                 case "DIGL":
                     var (low, high, _) = TransmitFilterOrDefault(t.TxFilterLow, t.TxFilterHigh);
                     return (low, high);
+                case "CW":
+                    return (-(int)(SixtyMeterChannels.CwWidthHz / 2), (int)(SixtyMeterChannels.CwWidthHz / 2));
                 default:
                     return (t.FilterLow, t.FilterHigh);
             }
@@ -367,7 +387,9 @@ namespace Radios
         /// <item>LSB and DIGL: the edges below the carrier.</item>
         /// <item>USB and DIGU: the edges above it.</item>
         /// <item>CW, AM, FM and every other mode, or none: the carrier plus each
-        /// edge as given, which is what the lockout has always done.</item>
+        /// edge as given, which is what the lockout has always done. (Which edges
+        /// it is given is <see cref="JudgedEdges"/>'s: since repair round 2, CW's are
+        /// a fixed 150 Hz.)</item>
         /// </list>
         /// <para>FlexLib already signs a slice's filter (negative edges in LSB),
         /// so for its edges every row gives the same answer as before. The two
