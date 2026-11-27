@@ -1,0 +1,2 @@
+<!-- DRAFT: for Codex to word. Not approved copy. -->
+- The license class lists in Settings and on the operator form now offer all five US classes, with Novice and Advanced marked as held but no longer issued. A Novice license is now kept as Novice, so the TX band lockout no longer gives a Novice the Technician privileges above 30 megahertz, and pressing OK in Settings no longer changes your license class unless you changed it.

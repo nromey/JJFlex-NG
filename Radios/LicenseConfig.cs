@@ -78,15 +78,26 @@ namespace Radios
         // ---------------- one licence class per operator (#1239) ----------------
 
         /// <summary>
-        /// The four classes the operator form and Settings offer, in Settings'
-        /// order (Noel, 2026-11-23: the classes an operator can hold today;
-        /// Technician, General and Extra are issued, Advanced is still held and
-        /// renewed). <see cref="Bands.Licenses"/> keeps all six on purpose
-        /// (historical), and none of the others is offered.
+        /// The five classes the operator form and Settings offer, in the order
+        /// both show them: the three still issued (Extra, General, Technician),
+        /// then the two held but no longer issued (Advanced, Novice).
         /// </summary>
+        /// <remarks>
+        /// <para><b>Ruled by Noel 2026-11-26</b> (#1309, question 5 of the
+        /// 41-question sheet, option C): all five classes Part 97 recognises
+        /// (97.9(a)) are offered, Novice and Advanced marked held but no longer
+        /// issued (97.17(a)). The ORDER is the orchestrator's suggestion, not a
+        /// ruling.</para>
+        /// <para>Display order only: the licence file stores a class by its
+        /// enum NAME and the operator record by its NUMBER, so
+        /// <see cref="Bands.Licenses"/> itself is never reordered or renamed
+        /// (the misspelt <c>technition</c> stays). <c>none</c> is not a class
+        /// anyone holds and is not offered.</para>
+        /// </remarks>
         public static readonly IReadOnlyList<Bands.Licenses> OfferedClasses = new[]
         {
-            Bands.Licenses.extra, Bands.Licenses.advanced, Bands.Licenses.general, Bands.Licenses.technition,
+            Bands.Licenses.extra, Bands.Licenses.general, Bands.Licenses.technition,
+            Bands.Licenses.advanced, Bands.Licenses.novice,
         };
 
         /// <summary>
@@ -98,27 +109,60 @@ namespace Radios
         public const Bands.Licenses NewOperatorClass = Bands.Licenses.general;
 
         /// <summary>
-        /// A held class as one of the four offered: a held Novice reads as
-        /// Technician (the band table gives them the same privileges), and
-        /// the four read as themselves. A stored <c>none</c> is not a class
-        /// anyone holds and reads as Extra, which is what Settings has always
-        /// shown for it; nothing stored is changed by reading it.
+        /// A stored class as one of the five offered: each of the five reads as
+        /// itself. A stored <c>none</c> is not a class anyone holds and reads as
+        /// Extra, which is what Settings has always shown for it; nothing stored
+        /// is changed by reading it.
         /// </summary>
+        /// <remarks>
+        /// Until 2026-11-26 a held Novice read as Technician here, on the premise
+        /// (#1239) that the band table gives the two the same privileges. Part 97
+        /// does not: above 30 MHz a Novice has only 222 to 225 MHz and 1270 to
+        /// 1295 MHz (97.301(e)), while a Technician has every 97.301(a) band from
+        /// 6 m up. On HF the two are identical. So a Novice is shown, kept and
+        /// judged as Novice (#1309).
+        /// </remarks>
         public static Bands.Licenses ShownClass(Bands.Licenses stored) => stored switch
         {
-            Bands.Licenses.novice => Bands.Licenses.technition,
-            Bands.Licenses.technition or Bands.Licenses.general or Bands.Licenses.advanced or Bands.Licenses.extra => stored,
+            Bands.Licenses.novice or Bands.Licenses.technition or Bands.Licenses.general
+                or Bands.Licenses.advanced or Bands.Licenses.extra => stored,
             _ => Bands.Licenses.extra,
         };
+
+        /// <summary>
+        /// The class the TX band lockout and the band notices judge for a stored
+        /// class: the class Settings shows (<see cref="ShownClass"/>), so a stored
+        /// <c>none</c>, which no division lists and so was refused on every band,
+        /// is judged as the Extra that Settings shows for it.
+        /// </summary>
+        /// <remarks>The orchestrator's decision for junk box batch 31 (#1309's
+        /// "shown, kept and judged"), now that an untouched Settings OK no longer
+        /// rewrites the stored class.</remarks>
+        public static Bands.Licenses JudgedClass(Bands.Licenses stored) => ShownClass(stored);
 
         /// <summary>The spoken label for one of the offered classes, Settings' own words.</summary>
         public static string ClassLabel(Bands.Licenses offered) => ShownClass(offered) switch
         {
-            Bands.Licenses.advanced => Lexicon.Get("settings.license.class_advanced"),
+            Bands.Licenses.advanced => Lexicon.Get("settings.license.class_advanced_held"),
+            Bands.Licenses.novice => Lexicon.Get("settings.license.class_novice_held"),
             Bands.Licenses.general => Lexicon.Get("settings.license.class_general"),
             Bands.Licenses.technition => Lexicon.Get("settings.license.class_technician"),
             _ => Lexicon.Get("settings.license.class_extra"),
         };
+
+        /// <summary>
+        /// The class a list of <see cref="OfferedClasses"/> was moved to, or null
+        /// when it was not moved: still on <paramref name="positionAtOpen"/>, or
+        /// on no valid position. Settings' OK writes the class only when this is
+        /// not null (#1309, folding in #1281), so an untouched License tab never
+        /// turns a stored class into another.
+        /// </summary>
+        public static Bands.Licenses? ClassChosenInList(int position, int positionAtOpen)
+        {
+            if (position == positionAtOpen) return null;
+            if (position < 0 || position >= OfferedClasses.Count) return null;
+            return OfferedClasses[position];
+        }
 
         /// <summary>What <see cref="SaveClass"/> did.</summary>
         public enum ClassSave

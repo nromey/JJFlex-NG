@@ -107,13 +107,13 @@ namespace JJFlexWpf.Dialogs
         private readonly IReadOnlyList<TuningSteps.Choice> _coarseStepOptions;
         private readonly IReadOnlyList<TuningSteps.Choice> _fineStepOptions;
 
-        private static readonly (string label, HamBands.Bands.Licenses value)[] LicenseClassMap =
-        {
-            (Lexicon.Get("settings.license.class_extra"), HamBands.Bands.Licenses.extra),
-            (Lexicon.Get("settings.license.class_advanced"), HamBands.Bands.Licenses.advanced),
-            (Lexicon.Get("settings.license.class_general"), HamBands.Bands.Licenses.general),
-            (Lexicon.Get("settings.license.class_technician"), HamBands.Bands.Licenses.technition)
-        };
+        /// <summary>
+        /// The licence class list's position when the dialog opened (#1309,
+        /// folding in #1281): OK writes the class only when the list was moved
+        /// off it, so an untouched License tab never rewrites a stored class.
+        /// -1 when nothing was selected.
+        /// </summary>
+        private int _licenseClassIndexAtOpen = -1;
 
         private static readonly string[] MeterPresetOptions =
         {
@@ -335,20 +335,20 @@ namespace JJFlexWpf.Dialogs
             JJFlexHelp.SetText(FilterUnitsCheckbox, Lexicon.Get("settings.filter.units_help"));
             FilterUnitsCheckbox.IsChecked = _audioConfig.FilterWidthUnits;
 
-            // License tab — populate from LicenseConfig
-            foreach (var (label, _) in LicenseClassMap)
-                LicenseClassCombo.Items.Add(label);
-            // Find the matching entry for the current license. A held Novice
-            // reads as Technician (#1239), the class the band table already
-            // treats it as; it used to fall through to Extra, and the next OK
-            // saved Extra. A stored "none" still reads as Extra, as before.
+            // License tab — populate from LicenseConfig: the five classes and
+            // their words are LicenseConfig's, the same list the operator form
+            // shows (#1309; Settings used to keep a second copy of four). Each
+            // stored class reads as itself; a stored "none" reads as Extra.
+            foreach (var cls in LicenseConfig.OfferedClasses)
+                LicenseClassCombo.Items.Add(LicenseConfig.ClassLabel(cls));
             int licIdx = 0;
             var shownClass = LicenseConfig.ShownClass(_licenseConfig.LicenseClass);
-            for (int i = 0; i < LicenseClassMap.Length; i++)
+            for (int i = 0; i < LicenseConfig.OfferedClasses.Count; i++)
             {
-                if (LicenseClassMap[i].value == shownClass) { licIdx = i; break; }
+                if (LicenseConfig.OfferedClasses[i] == shownClass) { licIdx = i; break; }
             }
             LicenseClassCombo.SelectedIndex = licIdx;
+            _licenseClassIndexAtOpen = licIdx;
 
             BandBoundaryCheckbox.IsChecked = _licenseConfig.BoundaryNotifications;
             TxLockoutCheckbox.IsChecked = _licenseConfig.TxLockout;
@@ -1704,10 +1704,13 @@ namespace JJFlexWpf.Dialogs
             else
                 _audioConfig.TuneDebounceMs = 300;
 
-            // License tab — write back to LicenseConfig
+            // License tab — write back to LicenseConfig. The class only when
+            // the operator moved the list (#1309, #1281): an untouched tab
+            // leaves the stored class exactly as it was, a held Novice or a
+            // stored "none" included.
             int selIdx = LicenseClassCombo.SelectedIndex;
-            if (selIdx >= 0 && selIdx < LicenseClassMap.Length)
-                _licenseConfig.LicenseClass = LicenseClassMap[selIdx].value;
+            if (LicenseConfig.ClassChosenInList(selIdx, _licenseClassIndexAtOpen) is { } chosenClass)
+                _licenseConfig.LicenseClass = chosenClass;
             _licenseConfig.BoundaryNotifications = BandBoundaryCheckbox.IsChecked == true;
             _licenseConfig.TxLockout = TxLockoutCheckbox.IsChecked == true;
             // #1306: into the audio settings, made live by _audioConfig.Apply()

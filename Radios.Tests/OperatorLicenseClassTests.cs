@@ -131,7 +131,10 @@ namespace Radios.Tests
             byte[] before = File.ReadAllBytes(FileOf(Op));
             var (stored, shown) = AtOpen(Op);
             Assert.Equal(Bands.Licenses.novice, stored);
-            Assert.Equal(Bands.Licenses.technition, shown);   // a held Novice reads as Technician
+            // #1309 (batch 31): a held Novice reads as Novice. It read as
+            // Technician until then, which Part 97 makes too permissive above
+            // 30 MHz; changed on purpose.
+            Assert.Equal(Bands.Licenses.novice, shown);
 
             Assert.Equal("Unchanged", Save(Op, Op, shown, chosen: shown, isNew: false));
             Assert.Equal(before, File.ReadAllBytes(FileOf(Op)));
@@ -167,29 +170,42 @@ namespace Radios.Tests
             Assert.Equal(Bands.Licenses.general, Record(Bands.Licenses.general, Bands.Licenses.general, Bands.Licenses.general, isNew: true));
         }
 
-        // ---------------- the four classes, one vocabulary ----------------
+        // ---------------- the five classes, one vocabulary ----------------
 
         [Theory]
-        [InlineData(Bands.Licenses.novice, Bands.Licenses.technition)]
+        [InlineData(Bands.Licenses.novice, Bands.Licenses.novice)]   // #1309: was Technician
         [InlineData(Bands.Licenses.technition, Bands.Licenses.technition)]
         [InlineData(Bands.Licenses.general, Bands.Licenses.general)]
         [InlineData(Bands.Licenses.advanced, Bands.Licenses.advanced)]
         [InlineData(Bands.Licenses.extra, Bands.Licenses.extra)]
         [InlineData(Bands.Licenses.none, Bands.Licenses.extra)]
-        public void A_held_class_reads_as_one_of_the_four(Bands.Licenses stored, Bands.Licenses shown)
+        public void A_held_class_reads_as_one_of_the_five(Bands.Licenses stored, Bands.Licenses shown)
         {
             Assert.Equal(shown, LicenseConfig.ShownClass(stored));
         }
 
+        // #1309 (batch 31): Settings' own four-entry map is gone; the list is
+        // LicenseConfig's five, and a held Novice opens on Novice.
         [Fact]
-        public void Settings_shows_a_held_Novice_as_Technician_not_Extra()
+        public void Settings_shows_a_held_Novice_as_Novice_from_the_one_class_list()
         {
             string settings = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs")).Replace("\r\n", "\n");
-            int loop = settings.IndexOf("foreach (var (label, _) in LicenseClassMap)", StringComparison.Ordinal);
+            Assert.DoesNotContain("LicenseClassMap", settings, StringComparison.Ordinal);
+            int loop = settings.IndexOf("foreach (var cls in LicenseConfig.OfferedClasses)", StringComparison.Ordinal);
             Assert.True(loop > 0);
             string populate = settings.Substring(loop, settings.IndexOf("LicenseClassCombo.SelectedIndex = licIdx;", loop, StringComparison.Ordinal) - loop);
+            Assert.Contains("LicenseClassCombo.Items.Add(LicenseConfig.ClassLabel(cls));", populate, StringComparison.Ordinal);
             Assert.Contains("LicenseConfig.ShownClass(_licenseConfig.LicenseClass)", populate, StringComparison.Ordinal);
-            Assert.Contains("LicenseClassMap[i].value == shownClass", populate, StringComparison.Ordinal);
+            Assert.Contains("LicenseConfig.OfferedClasses[i] == shownClass", populate, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void Settings_OK_writes_the_class_only_when_the_list_was_moved()
+        {
+            string settings = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs")).Replace("\r\n", "\n");
+            Assert.Contains("_licenseClassIndexAtOpen = licIdx;", settings, StringComparison.Ordinal);
+            Assert.Contains("if (LicenseConfig.ClassChosenInList(selIdx, _licenseClassIndexAtOpen) is { } chosenClass)\n                _licenseConfig.LicenseClass = chosenClass;", settings, StringComparison.Ordinal);
+            Assert.Equal(1, Occurrences(settings, "_licenseConfig.LicenseClass = "));
         }
 
         // ---------------- where the app saves it, by source ----------------
@@ -238,7 +254,7 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_form_lists_the_four_and_records_through_the_seams()
+        public void The_form_lists_the_five_and_records_through_the_seams()
         {
             string src = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "PersonalInfo.vb")).Replace("\r\n", "\n");
             Assert.Contains("For Each l As Bands.Licenses In LicenseConfig.OfferedClasses", src, StringComparison.Ordinal);
@@ -259,9 +275,10 @@ namespace Radios.Tests
 
         [Theory]
         [InlineData(0, Bands.Licenses.extra)]
-        [InlineData(1, Bands.Licenses.advanced)]
-        [InlineData(2, Bands.Licenses.general)]
-        [InlineData(3, Bands.Licenses.technition)]
+        [InlineData(1, Bands.Licenses.general)]
+        [InlineData(2, Bands.Licenses.technition)]
+        [InlineData(3, Bands.Licenses.advanced)]
+        [InlineData(4, Bands.Licenses.novice)]
         public void Each_list_position_saves_the_class_it_shows(int index, Bands.Licenses cls)
         {
             // Settings' order, so position 0 is Extra: read as the enum value it
@@ -278,11 +295,14 @@ namespace Radios.Tests
             Assert.Equal(shown, AtListIndex(-1, shown));
         }
 
+        // #1309 (batch 31): five classes, the three issued first, then the two
+        // held but no longer issued. Changed on purpose from #1239's four.
         [Theory]
         [InlineData(Bands.Licenses.extra, 0)]
-        [InlineData(Bands.Licenses.advanced, 1)]
-        [InlineData(Bands.Licenses.general, 2)]
-        [InlineData(Bands.Licenses.technition, 3)]
+        [InlineData(Bands.Licenses.general, 1)]
+        [InlineData(Bands.Licenses.technition, 2)]
+        [InlineData(Bands.Licenses.advanced, 3)]
+        [InlineData(Bands.Licenses.novice, 4)]
         public void The_list_opens_on_the_operators_own_class(Bands.Licenses cls, int index)
         {
             // An untouched edit of a General operator must save General, not

@@ -22,9 +22,9 @@ Public Class PersonalInfo
         Static alreadyDone As Boolean = False
         If Not alreadyDone Then
             alreadyDone = True
-            ' The four classes an operator can hold today, in Settings' order
-            ' and with Settings' words (#1239). Bands.Licenses keeps six on
-            ' purpose; the list index is no longer the enum value.
+            ' The five classes Part 97 recognises, in Settings' order and with
+            ' Settings' words (#1309; four until 2026-11-26, #1239). Bands.Licenses
+            ' keeps six on purpose; the list index is no longer the enum value.
             For Each l As Bands.Licenses In LicenseConfig.OfferedClasses
                 LicenseList.Items.Add(LicenseConfig.ClassLabel(l))
             Next

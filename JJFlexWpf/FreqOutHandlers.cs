@@ -4363,7 +4363,7 @@ public class FreqOutHandlers
         }
 
         if (License == null) return null;
-        var bandInfo = Bands.Query(band, License.LicenseClass);
+        var bandInfo = Bands.Query(band, JudgedLicenseClass());
         if (bandInfo?.Divisions == null) return null;
 
         foreach (var div in bandInfo.Divisions)
@@ -4423,7 +4423,7 @@ public class FreqOutHandlers
         if (Rig == null || GetRXFrequency == null) return true;
 
         bool allowed = TransmitBandLockout.Judge(Rig.TransmitSliceSignal(),
-            GetRXFrequency(), Rig.FilterLow, Rig.FilterHigh, License.LicenseClass, out bool judgedSelected);
+            GetRXFrequency(), Rig.FilterLow, Rig.FilterHigh, JudgedLicenseClass(), out bool judgedSelected);
         if (judgedSelected != _lockoutJudgedSelected)
         {
             _lockoutJudgedSelected = judgedSelected;
@@ -4432,6 +4432,25 @@ public class FreqOutHandlers
         }
         return allowed;
     }
+
+    /// <summary>
+    /// The class the lockout and the band notices judge: the stored class,
+    /// except a stored <c>none</c>, which is judged as the Extra Settings shows
+    /// for it (#1309, <see cref="LicenseConfig.JudgedClass"/>), traced once.
+    /// </summary>
+    private Bands.Licenses JudgedLicenseClass()
+    {
+        var stored = License?.LicenseClass ?? Bands.Licenses.extra;
+        var judged = LicenseConfig.JudgedClass(stored);
+        if (judged != stored && !_storedClassReadAsShownTraced)
+        {
+            _storedClassReadAsShownTraced = true;
+            Tracing.TraceLine($"TX band lockout: the stored licence class {stored} is judged as {judged}, the class Settings shows for it", TraceLevel.Info);
+        }
+        return judged;
+    }
+
+    private bool _storedClassReadAsShownTraced;
 
     /// <summary>Whether the lockout's last judgement had no transmit slice to judge,
     /// so its trace line is written once per change, not on every check.</summary>
