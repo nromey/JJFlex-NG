@@ -23,6 +23,18 @@ namespace Radios
         /// nobody has read on a radio, which may or may not apply it).
         /// </summary>
         public ulong? AlsoJudgeHz { get; init; }
+
+        /// <summary>
+        /// The radio's transmit filter, low edge, in hertz, as FlexLib reports it
+        /// (at or above 0, so it carries no side; the mode says which side). Read
+        /// for the 60 m rule's emission judgement only (#1161), never by the
+        /// lockout's arithmetic. 0 with <see cref="TxFilterHigh"/> 0 means not
+        /// reported.
+        /// </summary>
+        public int TxFilterLow { get; init; }
+
+        /// <summary>The radio's transmit filter, high edge, in hertz (see <see cref="TxFilterLow"/>).</summary>
+        public int TxFilterHigh { get; init; }
     }
 
     /// <summary>

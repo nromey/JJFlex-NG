@@ -79,7 +79,6 @@ namespace Radios.Tests
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Debounce tuning speech (group rapid steps)")] = Fuller, // announced "Debounce tuning speech"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Band boundary notifications")] = Fuller, // announced "Notify when tuning near band boundaries"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "TX band lockout")] = Fuller, // announced "Prevent transmitting outside licensed bands"
-            [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Enforce transmit rules (60m channels, power limits)")] = Fuller, // announced "Enforce transmit parameters based on published amateur radio rules"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Mute the headphone output")] = Fuller, // announced "Mute the radio's headphone output"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Mute the line out output")] = Fuller, // announced "Mute the radio's line out output"
             [("JJFlexWpf/Dialogs/SettingsDialog.xaml", "Mute the front panel speaker")] = Fuller, // announced "Mute the radio's front panel speaker"

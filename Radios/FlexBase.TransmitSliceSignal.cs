@@ -56,7 +56,14 @@ namespace Radios
             if (hz == 0UL) return null;
             string mode = s.DemodMode ?? "";
             var (judged, also) = TransmittedHz(hz, XitOffsetHz(s.XITOn, s.XITFreq), TxOffsetHz(s.TXOffsetFreq), mode);
-            return new TransmitSliceReading(judged, mode, s.FilterLow, s.FilterHigh) { AlsoJudgeHz = also };
+            // The radio's transmit filter rides along for the 60 m rule's
+            // emission judgement (#1161); the lockout never reads it.
+            return new TransmitSliceReading(judged, mode, s.FilterLow, s.FilterHigh)
+            {
+                AlsoJudgeHz = also,
+                TxFilterLow = TXFilterLow,
+                TxFilterHigh = TXFilterHigh,
+            };
         }
 
         /// <summary>How the radio treats a slice's <c>TXOffsetFreq</c> in a mode

@@ -17,6 +17,28 @@ namespace Radios
     }
 
     /// <summary>
+    /// Why the 60 m rules ("Enforce transmit rules" on Settings, License) refused
+    /// a transmission (#1161), or <see cref="None"/> when they did not. Judged only
+    /// for a signal on the 60 m band (<see cref="SixtyMeterChannels.JudgeTransmission"/>).
+    /// </summary>
+    public enum SixtyMeterReason
+    {
+        /// <summary>Lawful, not on 60 m, or the rules are off.</summary>
+        None,
+        /// <summary>On a channel in a kept mode, but not on the exact dial for it: CW on the
+        /// centre, USB and Digital USB 1.5 kHz below it (97.303(h)(3)).</summary>
+        Dial,
+        /// <summary>A mode not allowed where the signal is: on a channel anything but USB,
+        /// Digital USB or CW; in the segment AM, FM, FreeDV and the like.</summary>
+        Mode,
+        /// <summary>The transmit filter makes the signal wider than 2.8 kHz, or carries part
+        /// of it past the channel's or the segment's edge.</summary>
+        Emission,
+        /// <summary>On the 60 m band, but on no channel and outside the segment.</summary>
+        Outside,
+    }
+
+    /// <summary>
     /// The one judgement of a transmission against the rules JJ Flexible adds on
     /// top of the radio's own (ruled by Noel 2026-11-19 for #1161: the check
     /// returns a reason, not yes or no, so one judge serves every rule and the
@@ -30,7 +52,7 @@ namespace Radios
     /// reason only, word for word; every other reason has its own sentence, which
     /// names the setting that refused it.</para>
     /// </remarks>
-    public readonly record struct TransmitVerdict(LockoutReason Lockout)
+    public readonly record struct TransmitVerdict(LockoutReason Lockout, SixtyMeterReason SixtyMeter = SixtyMeterReason.None)
     {
         /// <summary>Nothing refused.</summary>
         public static TransmitVerdict Allowed => default;
@@ -40,17 +62,33 @@ namespace Radios
         public static TransmitVerdict LockoutFrequency => new(LockoutReason.Frequency);
 
         /// <summary>True when nothing refused the transmission.</summary>
-        public bool IsAllowed => Lockout == LockoutReason.None;
+        public bool IsAllowed => Lockout == LockoutReason.None && SixtyMeter == SixtyMeterReason.None;
 
         /// <summary>
         /// The sentence a door speaks for this refusal; null when nothing was
-        /// refused. Each key is a full literal (LexiconKeyCoverageTests).
+        /// refused. When both the lockout and the 60 m rules refused, both are
+        /// named, because turning one off would not let the key through. Each key
+        /// is a full literal (LexiconKeyCoverageTests).
         /// </summary>
-        public string? RefusalSentence() => Lockout switch
+        public string? RefusalSentence()
         {
-            LockoutReason.Frequency => Lexicon.Get("audio.ptt.blocked_by_license"),
-            LockoutReason.Mode => Lexicon.Get("audio.ptt.blocked_by_license_mode"),
-            _ => null,
-        };
+            string? lockout = Lockout switch
+            {
+                LockoutReason.Frequency => Lexicon.Get("audio.ptt.blocked_by_license"),
+                LockoutReason.Mode => Lexicon.Get("audio.ptt.blocked_by_license_mode"),
+                _ => null,
+            };
+            string? sixty = SixtyMeter switch
+            {
+                SixtyMeterReason.Dial => Lexicon.Get("audio.ptt.blocked_sixty_meter_dial"),
+                SixtyMeterReason.Mode => Lexicon.Get("audio.ptt.blocked_sixty_meter_mode"),
+                SixtyMeterReason.Emission => Lexicon.Get("audio.ptt.blocked_sixty_meter_emission"),
+                SixtyMeterReason.Outside => Lexicon.Get("audio.ptt.blocked_sixty_meter_outside"),
+                _ => null,
+            };
+            if (lockout != null && sixty != null)
+                return Lexicon.Get("audio.ptt.blocked_by_both", ("lockout", lockout), ("sixty", sixty));
+            return lockout ?? sixty;
+        }
     }
 }

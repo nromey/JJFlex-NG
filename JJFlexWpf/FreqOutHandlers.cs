@@ -4455,8 +4455,10 @@ public class FreqOutHandlers
     /// The one judge of the rules JJ Flexible adds on top of the radio's own,
     /// returning why a transmission is refused, not only whether (ruled by Noel
     /// 2026-11-19 for #1161): the TX band lockout's frequency and, since #1310,
-    /// its mode. Every door and the radio's own chokepoints ask this
-    /// (<see cref="FlexBase.TransmitRulesVerdict"/>).
+    /// its mode, and the 60 m rules (#1161). Every door and the radio's own
+    /// chokepoints ask this (<see cref="FlexBase.TransmitRulesVerdict"/>). The
+    /// judgement itself is <see cref="TransmitRules.Judge"/>; this gathers its
+    /// inputs and traces.
     /// </summary>
     /// <param name="sixtyMeterRule">Whether the 60 m rule is asked as well
     /// (false for the antenna tuner, which raises a tune carrier).</param>
@@ -4479,7 +4481,8 @@ public class FreqOutHandlers
     public TransmitVerdict JudgeTransmitHere(bool sixtyMeterRule = true)
     {
         var license = License;
-        if (license == null || !license.TxLockout) return TransmitVerdict.Allowed;
+        if (license == null || (!license.TxLockout && !(sixtyMeterRule && license.EnforceTxRules)))
+            return TransmitVerdict.Allowed;
         var rig = Rig;
         var getRx = GetRXFrequency;
         if (rig == null || getRx == null)
@@ -4488,14 +4491,15 @@ public class FreqOutHandlers
             return TransmitVerdict.Allowed;
         }
 
-        LockoutReason lockout;
-        bool judgedSelected, modeUnrecognised;
+        TransmitVerdict verdict;
+        bool judgedSelected, modeUnrecognised, rttyLetThrough;
         TransmitSliceReading? reading;
         try
         {
             reading = rig.TransmitSliceSignal();
-            lockout = TransmitBandLockout.JudgeReason(reading, getRx(), rig.FilterLow, rig.FilterHigh,
-                JudgedLicenseClass(), out judgedSelected, out modeUnrecognised);
+            if (license.TxLockout) JudgedLicenseClass();   // traces a stored "none" judged as Extra, once
+            verdict = TransmitRules.Judge(license, reading, getRx(), rig.FilterLow, rig.FilterHigh, sixtyMeterRule,
+                out judgedSelected, out modeUnrecognised, out rttyLetThrough);
         }
         catch (Exception ex)
         {
@@ -4515,8 +4519,20 @@ public class FreqOutHandlers
             if (unknownMode != null)
                 Tracing.TraceLine($"TX band lockout: mode {unknownMode} is not in the mode table, so it is judged on frequency alone", TraceLevel.Info);
         }
-        return new TransmitVerdict(lockout);
+        if (rttyLetThrough != _rttyLetThroughTraced)
+        {
+            _rttyLetThroughTraced = rttyLetThrough;
+            if (rttyLetThrough)
+                Tracing.TraceLine("60 m rules: an RTTY transmission on 60 m is let through unjudged (what a Flex RTTY slice frequency means is not established)", TraceLevel.Info);
+        }
+        if (!verdict.IsAllowed)
+            Tracing.TraceLine($"Transmit rules refused: lockout {verdict.Lockout}, 60 m {verdict.SixtyMeter}"
+                + (reading is { } r ? $" ({r.Hz} Hz {r.Mode}, transmit filter {r.TxFilterLow} to {r.TxFilterHigh})" : " (the selected slice)"),
+                TraceLevel.Info);
+        return verdict;
     }
+
+    private bool _rttyLetThroughTraced;
 
     private string? _lastUnrecognisedModeTraced;
     private string? _lastAdmittedReason;

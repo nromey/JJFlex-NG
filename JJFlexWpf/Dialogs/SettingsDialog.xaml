@@ -348,10 +348,11 @@
                                   AutomationProperties.Name="Country for 60 meter channelization rules"/>
                     </StackPanel>
 
+                    <!-- #1161: the 60 m rules at transmit time. Its label, name
+                         and Ctrl+F1 text come from the Lexicon in code; it no
+                         longer promises power limits, which are not built. -->
                     <CheckBox x:Name="EnforceTxRulesCheckbox"
-                              Content="Enforce transmit rules (60m channels, power limits)"
-                              Margin="0,8,0,0"
-                              AutomationProperties.Name="Enforce transmit parameters based on published amateur radio rules"/>
+                              Margin="0,8,0,0"/>
                 </StackPanel>
             </TabItem>
 

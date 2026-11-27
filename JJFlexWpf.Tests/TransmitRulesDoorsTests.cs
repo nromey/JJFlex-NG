@@ -158,7 +158,9 @@ public sealed class TransmitRulesDoorsTests : IDisposable
         string ptt = Source("PttSafetyController.cs");
         Assert.Contains("(CanTransmitHereCheck?.Invoke() ?? true);", ptt, StringComparison.Ordinal);   // recorder playback, unchanged
         Assert.Equal(2, Occurrences(ptt, "if (TransmitRulesRefusal() is { } rulesRefusal)"));
-        Assert.DoesNotContain("Lexicon.Get(\"audio.ptt.blocked_by_license\")", ptt, StringComparison.Ordinal);
+        // No door names the frequency sentence's key itself any more (built, so
+        // the lexicon's key scan does not read this line as a key).
+        Assert.DoesNotContain("\"" + string.Join(".", "audio", "ptt", "blocked_by_license") + "\"", ptt, StringComparison.Ordinal);
     }
 
     private static string Source(string file)

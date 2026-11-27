@@ -3324,6 +3324,14 @@ namespace Radios.Tests
                 "settings.band.mode_60m_data",
                 // ...and #1310: the lockout refusing a mode. DRAFT.
                 "audio.ptt.blocked_by_license_mode",
+                // ...and #1161: the 60 m rules' refusals, and its checkbox. DRAFT.
+                "audio.ptt.blocked_sixty_meter_dial",
+                "audio.ptt.blocked_sixty_meter_mode",
+                "audio.ptt.blocked_sixty_meter_emission",
+                "audio.ptt.blocked_sixty_meter_outside",
+                "audio.ptt.blocked_by_both",
+                "settings.license.enforce_tx_rules_label",
+                "settings.license.enforce_tx_rules_help",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

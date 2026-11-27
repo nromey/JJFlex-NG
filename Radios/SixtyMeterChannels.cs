@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Radios
@@ -26,9 +27,10 @@ namespace Radios
     /// upper sideband data; everything else becomes USB. In the segment: USB,
     /// LSB, CW, DIGU, DIGL and RTTY are kept; AM, SAM, DSB, the FM modes and
     /// FreeDV become USB.</para>
-    /// <para><b>Not here:</b> the 2.8 kHz bandwidth check on the transmit
-    /// filter and any enforcement at transmit time. Nothing in this class
-    /// keys, refuses or limits power.</para>
+    /// <para><b>At transmit time</b> (#1161): <see cref="JudgeTransmission"/>
+    /// judges a transmission against this table, including the 2.8 kHz width of
+    /// the real transmit filter, for the "Enforce transmit rules" box. Nothing in
+    /// this class keys or limits power; the power limits are not enforced.</para>
     /// </remarks>
     public static class SixtyMeterChannels
     {
@@ -401,6 +403,151 @@ namespace Radios
             }
 
             return false;
+        }
+
+        // ---------------- at transmit time (#1161) ----------------
+
+        /// <summary>
+        /// The 60 m rules at transmit time (#1161, ruled by Noel 2026-11-19 and
+        /// 2026-11-26): whether a transmission at <paramref name="carrierHz"/> in
+        /// <paramref name="mode"/> is lawful under this table, and if not, why.
+        /// </summary>
+        /// <param name="txFilterLow">The radio's transmit filter low edge, hertz, as
+        /// FlexLib reports it (unsigned; the mode gives the side). 0 with
+        /// <paramref name="txFilterHigh"/> 0 means not reported.</param>
+        /// <param name="txFilterHigh">Its high edge.</param>
+        /// <param name="rttyLetThrough">True when an RTTY transmission on 60 m was
+        /// let through unjudged (see the remarks); the caller traces it.</param>
+        /// <remarks>
+        /// <para><b>Only a signal on the 60 m band is judged.</b>
+        /// <see cref="IsValidSixtyMeterFrequency"/> answers false for every
+        /// frequency off 60 m, so it is asked only once the signal is found to
+        /// touch the band (5.300 to 5.500 MHz, the table's own 60 m band). A
+        /// signal that straddles the band's edge from below is judged here, and
+        /// refused as outside the channels and segment, which it is.</para>
+        /// <para><b>On a channel</b> (the dial within 100 Hz of the centre or the
+        /// phone dial, or the signal reaching into the channel's 2.8 kHz): USB,
+        /// Digital USB or CW only, on the exact dial for the mode
+        /// (<see cref="IsValidSixtyMeterFrequency"/>), and the whole emission inside
+        /// the centre plus and minus 1.4 kHz. <b>In the segment:</b> a mode the
+        /// segment keeps (<see cref="SegmentFinalMode"/>), with the whole emission
+        /// inside 5351.5 to 5366.5 kHz. Never wider than 2.8 kHz (97.307(f)(14)).</para>
+        /// <para><b>The emission is the radio's real transmit filter</b>, placed on
+        /// the mode's side of the carrier, when it is reported; the nominal
+        /// emission (<see cref="NominalEmission"/>) only when it is not. A filter
+        /// the operator widened is exactly what this rule exists to catch (#1172's
+        /// report: "the transmit-time check must judge the real filter"), and the
+        /// nominal sideband (3 kHz from the dial, for snapping with a margin) would
+        /// refuse a lawful default signal at the segment's edge. CW and RTTY are
+        /// judged by their nominal 500 Hz.</para>
+        /// <para><b>RTTY is let through, not judged</b>, on a channel and in the
+        /// segment: what a Flex RTTY slice frequency means (mark, centre or
+        /// something else) is not established, so a judgement could refuse a
+        /// lawful signal. The orchestrator's decision for junk box batch 31.</para>
+        /// <para><b>No mode, or one the lockout's mode table does not know</b>, is
+        /// judged on frequency alone: the dial on a channel or in the segment.
+        /// Never refused for its mode alone. A country with no allocation is never
+        /// refused.</para>
+        /// </remarks>
+        public static SixtyMeterReason JudgeTransmission(string countryCode, ulong carrierHz, string? mode,
+            int txFilterLow, int txFilterHigh, out bool rttyLetThrough)
+        {
+            rttyLetThrough = false;
+            var alloc = GetAllocation(countryCode);
+            if (alloc == null) return SixtyMeterReason.None;
+
+            string m = Norm(mode);
+            bool known = TransmitBandLockout.KindOf(m) != null;
+            var (low, high) = TransmittedEmission(carrierHz, known ? m : "", txFilterLow, txFilterHigh);
+            // The 2.8 kHz width is judged only on a reported filter: the nominal
+            // sideband is 3 kHz on purpose (a margin for snapping), not a width.
+            bool widthKnown = txFilterHigh > txFilterLow && txFilterHigh > 0 && m is not ("CW" or "RTTY");
+
+            var band = HamBands.Bands.Query(HamBands.Bands.BandNames.m60);
+            if (band == null || high < (long)band.Low || low > (long)band.High)
+                return SixtyMeterReason.None;   // not on 60 m: never judged here
+
+            if (m == "RTTY") { rttyLetThrough = true; return SixtyMeterReason.None; }
+
+            var seg = alloc.Value.Segment;
+            if (!known)
+            {
+                bool onPlace = ChannelAt(alloc.Value, carrierHz) != null || (seg != null && InSegment(seg, carrierHz));
+                return onPlace ? SixtyMeterReason.None : SixtyMeterReason.Outside;
+            }
+
+            // The dial names its place first: a recognised channel dial, else the
+            // segment when the dial is inside it, else a channel the signal reaches.
+            var ch = ChannelAt(alloc.Value, carrierHz);
+            if (ch == null && !(seg != null && InSegment(seg, carrierHz)))
+                ch = ChannelReachedBy(alloc.Value, low, high);
+            if (ch != null)
+            {
+                if (m is not ("USB" or "DIGU" or "CW")) return SixtyMeterReason.Mode;
+                if (!IsValidSixtyMeterFrequency(countryCode, carrierHz, m)) return SixtyMeterReason.Dial;
+                if (widthKnown && high - low > MaxWidthHz) return SixtyMeterReason.Emission;
+                long edgeLow = (long)ch.CentreHz - MaxWidthHz / 2, edgeHigh = (long)ch.CentreHz + MaxWidthHz / 2;
+                return low >= edgeLow && high <= edgeHigh ? SixtyMeterReason.None : SixtyMeterReason.Emission;
+            }
+
+            if (seg != null && high >= (long)seg.StartHz && low <= (long)seg.EndHz)
+            {
+                if (SegmentFinalMode(m) != m) return SixtyMeterReason.Mode;
+                if (widthKnown && high - low > MaxWidthHz) return SixtyMeterReason.Emission;
+                return low >= (long)seg.StartHz && high <= (long)seg.EndHz ? SixtyMeterReason.None : SixtyMeterReason.Emission;
+            }
+
+            return SixtyMeterReason.Outside;
+        }
+
+        /// <summary>The widest emission allowed on 60 m, and a channel's width (97.303(h)(3), 97.307(f)(14)).</summary>
+        private const long MaxWidthHz = 2_800;
+
+        /// <summary>
+        /// Where the transmitted signal sits: the transmit filter on the mode's side
+        /// of the carrier when reported, else the nominal emission; for a mode with
+        /// neither (AM, FM, no mode), the reported filter either side of the
+        /// carrier, or 3 kHz, which serves only to ask whether it touches 60 m.
+        /// </summary>
+        private static (long Low, long High) TransmittedEmission(ulong carrierHz, string m, int txLow, int txHigh)
+        {
+            long c = (long)carrierHz;
+            bool reported = txHigh > txLow && txHigh > 0;
+            long lo = Math.Max(0, Math.Min(txLow, txHigh)), hi = Math.Max(txLow, txHigh);
+            switch (m)
+            {
+                case "USB":
+                case "DIGU":
+                    return reported ? (c + lo, c + hi) : Nominal(c, m);
+                case "LSB":
+                case "DIGL":
+                    return reported ? (c - hi, c - lo) : Nominal(c, m);
+                case "CW":
+                case "RTTY":
+                    return Nominal(c, m);
+                default:
+                    long half = reported ? hi : 3_000;
+                    return (c - half, c + half);
+            }
+        }
+
+        private static (long Low, long High) Nominal(long carrier, string m)
+        {
+            var e = NominalEmission(m)!.Value;
+            return (carrier + e.Low, carrier + e.High);
+        }
+
+        /// <summary>The channel whose 2.8 kHz the signal reaches into, when the dial is
+        /// not one <see cref="ChannelAt"/> recognises: a signal on a channel at the
+        /// wrong dial is a wrong dial, not "outside the channels".</summary>
+        private static Channel? ChannelReachedBy((Channel[] Channels, Segment? Segment) alloc, long low, long high)
+        {
+            foreach (var ch in alloc.Channels)
+            {
+                long edgeLow = (long)ch.CentreHz - MaxWidthHz / 2, edgeHigh = (long)ch.CentreHz + MaxWidthHz / 2;
+                if (high >= edgeLow && low <= edgeHigh) return ch;
+            }
+            return null;
         }
 
         /// <summary>

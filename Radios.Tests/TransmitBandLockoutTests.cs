@@ -482,7 +482,8 @@ public sealed class TransmitBandLockoutTests : IDisposable
         // JudgeReason (mode as well as frequency); still one judgement.
         Assert.Contains("public bool CanTransmitHere() => JudgeTransmitHere().IsAllowed;", body, StringComparison.Ordinal);
         Assert.Contains("rig.TransmitSliceSignal()", body, StringComparison.Ordinal);
-        Assert.Contains("TransmitBandLockout.JudgeReason(", body, StringComparison.Ordinal);
+        // #1161: the lockout and the 60 m rules are judged together by TransmitRules.Judge.
+        Assert.Contains("TransmitRules.Judge(", body, StringComparison.Ordinal);
         Assert.DoesNotContain("Bands.Query", body, StringComparison.Ordinal);   // no second copy of the arithmetic
         Assert.DoesNotContain("TXFilterLow", body, StringComparison.Ordinal);   // never the radio's unsigned transmit filter
     }

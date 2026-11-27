@@ -366,6 +366,12 @@ namespace JJFlexWpf.Dialogs
             int countryIdx = Array.FindIndex(_countryMap, c => c.Item1 == currentCode);
             CountryCombo.SelectedIndex = countryIdx >= 0 ? countryIdx : 0;
 
+            // #1161: the box governs the 60 m rules at transmit time now. DRAFT
+            // words (Lexicon), with Ctrl+F1 text, as the callsign check's are.
+            EnforceTxRulesCheckbox.Content = Lexicon.Get("settings.license.enforce_tx_rules_label");
+            System.Windows.Automation.AutomationProperties.SetName(EnforceTxRulesCheckbox,
+                Lexicon.Get("settings.license.enforce_tx_rules_label"));
+            JJFlexHelp.SetText(EnforceTxRulesCheckbox, Lexicon.Get("settings.license.enforce_tx_rules_help"));
             EnforceTxRulesCheckbox.IsChecked = _licenseConfig.EnforceTxRules;
 
             // Audio tab — master volume

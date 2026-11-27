@@ -35,8 +35,15 @@ namespace Radios
         public string Country { get; set; } = "US";
 
         /// <summary>
-        /// When true, enforce TX parameters based on published rules (USB mode on 60m channels,
-        /// 100W power cap, TX lockout outside channels/digi segment). When false, no restrictions.
+        /// When true (the default), the 60 m rules are enforced at transmit time
+        /// (#1161, ruled by Noel 2026-11-26: on by default for a US operator, "or for
+        /// any other 60 m countries that we find require limitations"): on 60 m a
+        /// transmission must be on a channel at the exact dial for its mode, or in
+        /// the segment, with the whole emission inside and no wider than 2.8 kHz
+        /// (<see cref="SixtyMeterChannels.JudgeTransmission"/>). Independent of
+        /// <see cref="TxLockout"/>. A country with no 60 m table is never judged.
+        /// The power limits are NOT enforced yet (#1311). When false, no 60 m rule
+        /// is applied at transmit time.
         /// </summary>
         public bool EnforceTxRules { get; set; } = true;
 
