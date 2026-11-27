@@ -85,6 +85,23 @@ public sealed class TransmitRulesGateTests : IDisposable
         Assert.True(At(5_340_000, "USB").IsAllowed);
     }
 
+    /// <summary>
+    /// Repair round 2 (the Opus #1161 re-check's Noted 2): with the lockout off,
+    /// the gate's early return admits the tuner's ask before the judge is reached,
+    /// so the case below could not see the flag dropped on its way to the judge.
+    /// With the lockout and the box both on, the judge is reached, and the
+    /// tuner's ask must still leave the 60 m rule out.
+    /// </summary>
+    [Fact]
+    public void With_the_lockout_and_the_box_on_the_tuner_s_ask_still_leaves_the_60_metre_rule_out()
+    {
+        _handlers.License!.TxLockout = true;
+        _handlers.License.LicenseClass = HamBands.Bands.Licenses.general;
+        // LSB at the mirrored dial fills Channel 1 exactly: the lockout admits it, the 60 m rule does not.
+        Assert.True(At(5_333_500, "LSB", sixtyMeterRule: false).IsAllowed);
+        Assert.Equal(new TransmitVerdict(LockoutReason.None, SixtyMeterReason.ChannelMode), At(5_333_500, "LSB"));
+    }
+
     [Fact]
     public void The_antenna_tuner_s_ask_leaves_the_60_metre_rule_out()
     {
