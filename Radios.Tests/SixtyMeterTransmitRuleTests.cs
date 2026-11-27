@@ -401,11 +401,40 @@ public sealed class SixtyMeterTransmitRuleTests
             Judged(Settings(lockout: true, sixty: true, Bands.Licenses.general), 5_359_000, "NFM", -5500, 5500).SixtyMeter);
     }
 
+    // With a 100 to 1,200 Hz filter these rows lie wholly in the gap (5,349,800 to
+    // 5,350,900 Hz) and do not reach Channel 2's top (5,349,400): repair round 2
+    // corrected this comment, which said they reached into Channel 2. The
+    // reaching case is LSB_in_the_gap_with_the_default_filter_is_outside.
     [Theory]
-    [InlineData(5_351_000UL, "LSB")]   // reaches into Channel 2 from the gap below the segment
+    [InlineData(5_351_000UL, "LSB")]   // wholly in the gap below the segment
     [InlineData(5_351_000UL, "DIGL")]
     public void A_signal_in_the_gap_between_a_channel_and_the_segment_is_outside_never_a_mode_refusal(ulong hz, string mode) =>
         Assert.Equal(SixtyMeterReason.Outside, Judge(hz, mode, 100, 1200));
+
+    // ---- repair round 2: a dial inside a channel gets the channel sentence ----
+
+    [Theory]
+    [InlineData(5_332_500UL, "AM", 100, 1200)]    // 500 Hz above Channel 1's centre
+    [InlineData(5_331_500UL, "LSB", 100, 2900)]
+    [InlineData(5_347_200UL, "DIGL", 100, 2900)]
+    [InlineData(5_373_600UL, "FDVU", 100, 2900)]
+    [InlineData(5_404_300UL, "FM", 100, 2900)]
+    public void A_mode_the_channels_do_not_take_dialled_inside_a_channel_is_told_what_a_channel_allows(ulong hz, string mode, int low, int high) =>
+        Assert.Equal(SixtyMeterReason.ChannelMode, Judge(hz, mode, low, high));
+
+    [Fact]
+    public void The_channel_sentence_changes_no_verdict()
+    {
+        // FreeDV upper dialled just inside Channel 2's top with a 2,200 to 2,900 filter lies
+        // wholly in the segment: admitted before repair round 2, and still.
+        Assert.Equal(SixtyMeterReason.None, Judge(5_349_300, "FDVU", 2200, 2900));
+        // FM dialled there reaches the segment: still too wide, never the channel sentence.
+        Assert.Equal(SixtyMeterReason.TooWideMode, Judge(5_349_300, "FM", 2200, 2900));
+        // USB and Digital USB keep their own reasons (the Opus re-check's smaller relatives, left as they are).
+        Assert.Equal(SixtyMeterReason.Outside, Judge(5_333_350, "USB", 100, 2900));
+        // Off every channel and the segment: still outside.
+        Assert.Equal(SixtyMeterReason.Outside, Judge(5_340_000, "AM", 100, 1200));
+    }
 
     [Fact]
     public void AME_is_judged_like_AM_by_the_60_metre_rule()

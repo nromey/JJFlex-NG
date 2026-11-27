@@ -547,7 +547,26 @@ namespace Radios
                 return low >= (long)seg.StartHz && high <= (long)seg.EndHz ? SixtyMeterReason.None : emission;
             }
 
+            // Refused, as outside. The REASON only (repair round 2 of junk box batch
+            // 31): a mode the channels do not take, dialled inside a channel's
+            // centre plus and minus 1.4 kHz, is told what JJ Flexible allows on a
+            // channel rather than that it is outside the channels. Placed here, at
+            // the last line, so no verdict changes: reaching it already means the
+            // verdict is Outside. Never by widening ChannelAt, which the snap, the
+            // arrival code and the unknown-mode admission share.
+            if (!channelMode && ChannelSpanning(alloc, carrierHz) != null) return SixtyMeterReason.ChannelMode;
             return SixtyMeterReason.Outside;
+        }
+
+        /// <summary>The channel whose 2.8 kHz (centre plus and minus 1.4 kHz) holds the dial, for a reason only.</summary>
+        private static Channel? ChannelSpanning((Channel[] Channels, Segment? Segment) alloc, ulong carrierHz)
+        {
+            foreach (var ch in alloc.Channels)
+            {
+                long edgeLow = (long)ch.CentreHz - MaxWidthHz / 2, edgeHigh = (long)ch.CentreHz + MaxWidthHz / 2;
+                if ((long)carrierHz >= edgeLow && (long)carrierHz <= edgeHigh) return ch;
+            }
+            return null;
         }
 
         /// <summary>The FM modes and D-STAR: far wider than 2.8 kHz whatever the filter.</summary>
