@@ -4021,6 +4021,18 @@ Module globals
     End Function
 
     ''' <summary>
+    ''' The transmit rules' verdict, asked by the radio layer at its keying
+    ''' chokepoints and by the push to talk doors for the reason (#1310, #1307):
+    ''' Home's FreqOutHandlers holds the operator's licence and is the one judge.
+    ''' No Home yet admits, as the lockout always has.
+    ''' </summary>
+    Private Function judgeTransmitHere(sixtyMeterRule As Boolean) As Radios.TransmitVerdict
+        Dim handlers = WpfMainWindow?.FreqHandlers
+        If handlers Is Nothing Then Return Radios.TransmitVerdict.Allowed
+        Return handlers.JudgeTransmitHere(sixtyMeterRule)
+    End Function
+
+    ''' <summary>
     ''' Show the one-time "Try Modern UI?" prompt for existing operators
     ''' who predate the UIMode feature.
     ''' </summary>
@@ -5668,6 +5680,9 @@ Module globals
             ' No callsign, no transmit (#335): the radio layer asks for the
             ' OPERATOR's callsign at every key, never the radio's own field.
             OpenParms.GetOperatorCallsign = AddressOf currentOperatorCallsign
+            ' The transmit rules (the TX band lockout and the 60 m rules, #1310,
+            ' #1161, #1307): the radio layer asks the application's one judge.
+            OpenParms.JudgeTransmitHere = AddressOf judgeTransmitHere
             OpenParms.StationName = StationName
             OpenParms.BrailleCells = CurrentOp.BrailleDisplaySize
             OpenParms.License = CurrentOp.License

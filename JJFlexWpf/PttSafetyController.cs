@@ -63,6 +63,27 @@ namespace JJFlexWpf
         public Func<bool>? CanTransmitHereCheck { get; set; }
 
         /// <summary>
+        /// The transmit rules' verdict now, with its reason (#1310): refused
+        /// exactly when <see cref="CanTransmitHereCheck"/> says no, as always,
+        /// and then asked of the radio's judge (<see cref="FlexBase.TransmitRulesVerdict"/>,
+        /// the same judge) for WHY, so the refusal can say what was wrong and which
+        /// setting refused it. No check wired admits, as before; a "no" whose reason
+        /// cannot be read is the lockout's frequency refusal, with its approved
+        /// sentence, exactly what every door said until now.
+        /// </summary>
+        public TransmitVerdict JudgeTransmitHere()
+        {
+            var check = CanTransmitHereCheck;
+            if (check == null || check()) return TransmitVerdict.Allowed;
+            var reasoned = _getRigControl()?.TransmitRulesVerdict(sixtyMeterRule: true) ?? TransmitVerdict.Allowed;
+            return reasoned.IsAllowed ? TransmitVerdict.LockoutFrequency : reasoned;
+        }
+
+        /// <summary>The sentence a door speaks when the transmit rules refuse a key
+        /// now, or null when they do not (<see cref="JudgeTransmitHere"/>).</summary>
+        public string? TransmitRulesRefusal() => JudgeTransmitHere().RefusalSentence();
+
+        /// <summary>
         /// Extra line spoken at every key-down (Audio Track C). Static so it
         /// survives controller recreation on operator switch. Set by the Audio
         /// Workshop while the TX test tone is armed and cleared on disarm —
@@ -1101,10 +1122,12 @@ namespace JJFlexWpf
             // a clear reading only. Only from Idle: a release is never refused.
             if (State == PttState.Idle && RefuseWhileAnotherStationTransmits("push to talk")) return;
 
-            // License-aware TX lockout check
-            if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
+            // The transmit rules: the TX band lockout's frequency and mode
+            // (#1310). The sentence says what was wrong and which setting refused.
+            if (TransmitRulesRefusal() is { } rulesRefusal)
             {
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.blocked_by_license"), VerbosityLevel.Critical, interrupt: true);
+                ScreenReaderOutput.Speak(rulesRefusal, VerbosityLevel.Critical, interrupt: true,
+                    subject: Radios.Speech.SpeechSubject.TransmitKeyRefused);
                 EarconPlayer.Warning2Beep();
                 return;
             }
@@ -1904,10 +1927,11 @@ namespace JJFlexWpf
 
         private void EnterLocked()
         {
-            // License-aware TX lockout check
-            if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
+            // The transmit rules (#1310), as at push to talk.
+            if (TransmitRulesRefusal() is { } rulesRefusal)
             {
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.blocked_by_license"), VerbosityLevel.Critical, interrupt: true);
+                ScreenReaderOutput.Speak(rulesRefusal, VerbosityLevel.Critical, interrupt: true,
+                    subject: Radios.Speech.SpeechSubject.TransmitKeyRefused);
                 EarconPlayer.Warning2Beep();
                 return;
             }

@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using HamBands;
 
 namespace Radios
@@ -98,6 +99,177 @@ namespace Radios
                 if ((ulong)signalLow >= div.Low && (ulong)signalHigh <= div.High)
                     return true;
             }
+            return false;
+        }
+
+        // ---------------- the mode, as well as the frequency (#1310) ----------------
+
+        /// <summary>
+        /// What Part 97 calls a FlexLib slice mode, for judging which divisions
+        /// allow it (#1310, ruled by Noel 2026-11-26: the lockout judges mode as
+        /// well as frequency).
+        /// </summary>
+        public enum EmissionKind
+        {
+            /// <summary>CW: allowed anywhere in the class's privileges (97.305(a)).</summary>
+            Cw,
+            /// <summary>Single-sideband voice, J3E (USB, LSB).</summary>
+            SsbPhone,
+            /// <summary>Any other phone (97.3(c)(5)): AM, SAM, DSB, the FM modes,
+            /// D-STAR and FreeDV.</summary>
+            OtherPhone,
+            /// <summary>A sound-card digital mode (DIGU, DIGL): data, or image
+            /// such as SSTV, so it is allowed wherever either is.</summary>
+            DataOrImage,
+            /// <summary>The radio's own RTTY mode.</summary>
+            Rtty,
+        }
+
+        /// <summary>
+        /// The kind of emission a FlexLib mode name sends, case ignored; null for
+        /// no mode or one this table does not know, which is then judged on
+        /// frequency alone, as the lockout always judged it.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>FreeDV is phone.</b> 97.3(c)(5): "Speech and other sound
+        /// emissions having designators with A, C, D, F, G, H, J or R as the first
+        /// symbol; 1, 2, 3 or X as the second symbol; E as the third symbol"
+        /// (eCFR, Title 47, current to 2026-11-20, read 2026-11-26). FreeDV sent
+        /// through a sideband transmitter is J2E. It is not single sideband voice
+        /// (J3E or R3E), so it is not allowed where only those are (Novice and
+        /// Technician in 28.3 to 28.5 MHz, 97.307(f)(10)). FlexLib names the
+        /// FreeDV waveform's modes FDV, FDVU and FDVL; anything starting FDV is
+        /// read as FreeDV.</para>
+        /// <para><b>DIGU and DIGL are data or image</b>, because the program
+        /// feeding them decides which (an FT8 program sends data, an SSTV program
+        /// image), so they are refused only where neither is allowed.</para>
+        /// </remarks>
+        public static EmissionKind? KindOf(string? mode)
+        {
+            string m = (mode ?? "").Trim().ToUpperInvariant();
+            if (m.Length == 0) return null;
+            if (m.StartsWith("FDV", StringComparison.Ordinal)) return EmissionKind.OtherPhone;
+            return m switch
+            {
+                "CW" => EmissionKind.Cw,
+                "USB" or "LSB" => EmissionKind.SsbPhone,
+                "AM" or "SAM" or "DSB" or "FM" or "NFM" or "DFM" or "DSTR" => EmissionKind.OtherPhone,
+                "DIGU" or "DIGL" => EmissionKind.DataOrImage,
+                "RTTY" => EmissionKind.Rtty,
+                _ => null,
+            };
+        }
+
+        /// <summary>Whether a division with these modes allows <paramref name="kind"/>.
+        /// A division that lists no modes allows every one.</summary>
+        internal static bool Permits(Bands.Modes[]? modes, EmissionKind kind)
+        {
+            if (kind == EmissionKind.Cw || modes == null || modes.Length == 0) return true;
+            foreach (var m in modes)
+            {
+                switch (kind)
+                {
+                    case EmissionKind.SsbPhone when m is Bands.Modes.PhoneCW or Bands.Modes.USB or Bands.Modes.SSB:
+                    case EmissionKind.OtherPhone when m is Bands.Modes.PhoneCW:
+                    case EmissionKind.DataOrImage when m is Bands.Modes.RTTYData or Bands.Modes.M60Data or Bands.Modes.Data or Bands.Modes.Image:
+                    case EmissionKind.Rtty when m is Bands.Modes.RTTYData:
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// <see cref="Judge"/>, returning WHY a transmission is refused (#1310),
+        /// and judging the mode as well as the frequency.
+        /// </summary>
+        /// <param name="modeUnrecognised">True when the judged slice had a mode
+        /// <see cref="KindOf"/> does not know, which was then judged on frequency
+        /// alone (the caller traces it).</param>
+        /// <remarks>
+        /// With no transmit slice of ours the selected slice is judged with no
+        /// mode, exactly as before #1173, so on frequency alone: another client
+        /// holding transmit can never get a mode refusal.
+        /// </remarks>
+        public static LockoutReason JudgeReason(TransmitSliceReading? transmit, ulong selectedHz, int selectedLow, int selectedHigh,
+                                                Bands.Licenses license, out bool judgedSelected, out bool modeUnrecognised)
+        {
+            modeUnrecognised = false;
+            if (transmit is { } t && t.Hz != 0UL)
+            {
+                judgedSelected = false;
+                var first = AllowsReason(t.Hz, t.Mode, t.FilterLow, t.FilterHigh, license, out modeUnrecognised);
+                if (first != LockoutReason.None) return first;
+                // Not established which of two frequencies the radio uses: both must pass (#1207).
+                return t.AlsoJudgeHz is not { } also ? LockoutReason.None
+                    : AllowsReason(also, t.Mode, t.FilterLow, t.FilterHigh, license, out _);
+            }
+            judgedSelected = true;
+            return Allows(selectedHz, null, selectedLow, selectedHigh, license) ? LockoutReason.None : LockoutReason.Frequency;
+        }
+
+        /// <summary>
+        /// Whether a signal at <paramref name="carrierHz"/> in
+        /// <paramref name="mode"/> is lawful for the licence (#1310): the whole
+        /// signal inside the class's privileges where its mode is allowed.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Contiguous divisions are one stretch.</b> The signal may
+        /// cross a seam between two divisions that both allow its mode, and CW,
+        /// which every division allows (97.305(a)), may cross any seam inside the
+        /// class's privileges. Until this change a CW signal straddling 7.125,
+        /// 14.150 or 28.3 MHz was refused, by a few hundred hertz, though CW is
+        /// legal on both sides.</para>
+        /// <para><b>Frequency or mode.</b> A signal wholly inside the class's
+        /// privileges whose mode is not allowed where it sits is refused for its
+        /// MODE; one with any part outside them, for its FREQUENCY.</para>
+        /// <para><b>No mode, or one <see cref="KindOf"/> does not know</b>, is
+        /// judged exactly as <see cref="Allows"/> always judged it, on frequency
+        /// alone, and never refused for its mode.</para>
+        /// </remarks>
+        public static LockoutReason AllowsReason(ulong carrierHz, string? mode, int filterLow, int filterHigh,
+                                                 Bands.Licenses license, out bool modeUnrecognised)
+        {
+            var kind = KindOf(mode);
+            modeUnrecognised = kind == null && !string.IsNullOrWhiteSpace(mode);
+            if (kind == null)
+                return Allows(carrierHz, mode, filterLow, filterHigh, license) ? LockoutReason.None : LockoutReason.Frequency;
+
+            var (signalLow, signalHigh) = SignalExtent(carrierHz, mode, filterLow, filterHigh);
+            var bandInfo = Bands.Query((ulong)signalLow);
+            if (bandInfo == null) return LockoutReason.Frequency;
+            var licensedBand = Bands.Query(bandInfo.Band, license);
+            if (licensedBand?.Divisions == null) return LockoutReason.Frequency;
+
+            if (Inside(Stretches(licensedBand.Divisions, d => Permits(d.Mode, kind.Value)), signalLow, signalHigh))
+                return LockoutReason.None;
+            return Inside(Stretches(licensedBand.Divisions, _ => true), signalLow, signalHigh)
+                ? LockoutReason.Mode : LockoutReason.Frequency;
+        }
+
+        /// <summary>The chosen divisions as contiguous stretches: divisions that
+        /// overlap or meet are joined.</summary>
+        private static List<(ulong Low, ulong High)> Stretches(Bands.BandDivision[] divisions, Func<Bands.BandDivision, bool> chosen)
+        {
+            var spans = new List<(ulong Low, ulong High)>();
+            foreach (var d in divisions)
+                if (chosen(d)) spans.Add((d.Low, d.High));
+            spans.Sort((a, b) => a.Low.CompareTo(b.Low));
+            var joined = new List<(ulong Low, ulong High)>();
+            foreach (var s in spans)
+            {
+                if (joined.Count > 0 && s.Low <= joined[^1].High)
+                    joined[^1] = (joined[^1].Low, Math.Max(joined[^1].High, s.High));
+                else
+                    joined.Add(s);
+            }
+            return joined;
+        }
+
+        private static bool Inside(List<(ulong Low, ulong High)> stretches, long low, long high)
+        {
+            foreach (var s in stretches)
+                if ((ulong)low >= s.Low && (ulong)high <= s.High) return true;
             return false;
         }
 

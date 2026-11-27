@@ -1,0 +1,2 @@
+<!-- DRAFT: for Codex to word. Not approved copy. -->
+- With the TX band lockout on, your mode now counts as well as your frequency: phone in a CW or data segment, AM or FM where only sideband voice is allowed, and the like are refused, and the refusal tells you it was the mode. CW is now allowed anywhere inside your privileges, so a CW signal that crosses from one segment into the next is no longer refused.

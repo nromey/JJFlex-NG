@@ -4445,29 +4445,88 @@ public class FreqOutHandlers
 
     /// <summary>
     /// Check if the transmitted signal is within the operator's licensed band
-    /// segment. Returns true if TX is allowed, false if blocked.
+    /// segment. Returns true if TX is allowed, false if blocked: the yes or no
+    /// of <see cref="JudgeTransmitHere"/>, kept so its existing wiring
+    /// (<c>PttSafetyController.CanTransmitHereCheck</c>) is untouched.
     /// </summary>
-    /// <remarks>
-    /// #1173: the TRANSMIT slice is judged, its frequency with its own filter
-    /// signed per mode (<see cref="TransmitBandLockout"/>), so a split checks
-    /// the signal that goes out rather than the one being listened to. With no
-    /// transmit slice of ours it judges the selected slice as it always did,
-    /// and traces that once.
-    /// </remarks>
-    public bool CanTransmitHere()
-    {
-        if (License == null || !License.TxLockout) return true;
-        if (Rig == null || GetRXFrequency == null) return true;
+    public bool CanTransmitHere() => JudgeTransmitHere().IsAllowed;
 
-        bool allowed = TransmitBandLockout.Judge(Rig.TransmitSliceSignal(),
-            GetRXFrequency(), Rig.FilterLow, Rig.FilterHigh, JudgedLicenseClass(), out bool judgedSelected);
+    /// <summary>
+    /// The one judge of the rules JJ Flexible adds on top of the radio's own,
+    /// returning why a transmission is refused, not only whether (ruled by Noel
+    /// 2026-11-19 for #1161): the TX band lockout's frequency and, since #1310,
+    /// its mode. Every door and the radio's own chokepoints ask this
+    /// (<see cref="FlexBase.TransmitRulesVerdict"/>).
+    /// </summary>
+    /// <param name="sixtyMeterRule">Whether the 60 m rule is asked as well
+    /// (false for the antenna tuner, which raises a tune carrier).</param>
+    /// <remarks>
+    /// <para>#1173: the TRANSMIT slice is judged, its frequency with its own
+    /// filter signed per mode (<see cref="TransmitBandLockout"/>), so a split
+    /// checks the signal that goes out rather than the one being listened to.
+    /// With no transmit slice of ours it judges the selected slice as it always
+    /// did, on frequency alone, and traces that once.</para>
+    /// <para><b>It fails open, as it always has.</b> No licence, no radio, an
+    /// unwired frequency question or a slice that cannot be read admits and is
+    /// traced; a mode the table does not know is judged on frequency alone and
+    /// traced once, never refused for its mode alone.</para>
+    /// <para><b>Off the UI thread:</b> the radio's chokepoints ask this from a
+    /// send's own thread. Every input is a plain field or property read
+    /// (<see cref="License"/>, the rig, <c>GetRXFrequency</c> reading the rig's
+    /// <c>VirtualRXFrequency</c>, and <see cref="FlexBase.TransmitSliceSignal"/>,
+    /// which takes the slice list's lock); nothing touches a window.</para>
+    /// </remarks>
+    public TransmitVerdict JudgeTransmitHere(bool sixtyMeterRule = true)
+    {
+        var license = License;
+        if (license == null || !license.TxLockout) return TransmitVerdict.Allowed;
+        var rig = Rig;
+        var getRx = GetRXFrequency;
+        if (rig == null || getRx == null)
+        {
+            TraceAdmittedOnce("the radio or its frequency is not wired");
+            return TransmitVerdict.Allowed;
+        }
+
+        LockoutReason lockout;
+        bool judgedSelected, modeUnrecognised;
+        TransmitSliceReading? reading;
+        try
+        {
+            reading = rig.TransmitSliceSignal();
+            lockout = TransmitBandLockout.JudgeReason(reading, getRx(), rig.FilterLow, rig.FilterHigh,
+                JudgedLicenseClass(), out judgedSelected, out modeUnrecognised);
+        }
+        catch (Exception ex)
+        {
+            TraceAdmittedOnce("the transmit slice could not be read: " + ex.Message);
+            return TransmitVerdict.Allowed;
+        }
         if (judgedSelected != _lockoutJudgedSelected)
         {
             _lockoutJudgedSelected = judgedSelected;
             if (judgedSelected)
                 Tracing.TraceLine("CanTransmitHere: no transmit slice of ours, so the TX band lockout judges the selected slice", TraceLevel.Info);
         }
-        return allowed;
+        string? unknownMode = modeUnrecognised ? reading?.Mode : null;
+        if (unknownMode != _lastUnrecognisedModeTraced)
+        {
+            _lastUnrecognisedModeTraced = unknownMode;
+            if (unknownMode != null)
+                Tracing.TraceLine($"TX band lockout: mode {unknownMode} is not in the mode table, so it is judged on frequency alone", TraceLevel.Info);
+        }
+        return new TransmitVerdict(lockout);
+    }
+
+    private string? _lastUnrecognisedModeTraced;
+    private string? _lastAdmittedReason;
+
+    /// <summary>The lockout admitted without judging; traced once per reason.</summary>
+    private void TraceAdmittedOnce(string why)
+    {
+        if (why == _lastAdmittedReason) return;
+        _lastAdmittedReason = why;
+        Tracing.TraceLine("TX band lockout: admitted without a judgement, " + why, TraceLevel.Warning);
     }
 
     /// <summary>

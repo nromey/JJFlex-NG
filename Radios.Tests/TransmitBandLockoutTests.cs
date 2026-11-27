@@ -477,8 +477,12 @@ public sealed class TransmitBandLockoutTests : IDisposable
         // was removed (#1307); the body now ends at the next member.
         int end = src.IndexOf("private bool _lockoutJudgedSelected;", start, StringComparison.Ordinal);
         string body = src.Substring(start, end - start);
-        Assert.Contains("Rig.TransmitSliceSignal()", body, StringComparison.Ordinal);
-        Assert.Contains("TransmitBandLockout.Judge(", body, StringComparison.Ordinal);
+        // #1310 (batch 31): CanTransmitHere is now the yes or no of
+        // JudgeTransmitHere, which follows it and calls the reason-returning
+        // JudgeReason (mode as well as frequency); still one judgement.
+        Assert.Contains("public bool CanTransmitHere() => JudgeTransmitHere().IsAllowed;", body, StringComparison.Ordinal);
+        Assert.Contains("rig.TransmitSliceSignal()", body, StringComparison.Ordinal);
+        Assert.Contains("TransmitBandLockout.JudgeReason(", body, StringComparison.Ordinal);
         Assert.DoesNotContain("Bands.Query", body, StringComparison.Ordinal);   // no second copy of the arithmetic
         Assert.DoesNotContain("TXFilterLow", body, StringComparison.Ordinal);   // never the radio's unsigned transmit filter
     }

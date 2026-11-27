@@ -3322,6 +3322,8 @@ namespace Radios.Tests
                 "settings.band.name_above_275ghz",
                 "settings.band.mode_mcw",
                 "settings.band.mode_60m_data",
+                // ...and #1310: the lockout refusing a mode. DRAFT.
+                "audio.ptt.blocked_by_license_mode",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

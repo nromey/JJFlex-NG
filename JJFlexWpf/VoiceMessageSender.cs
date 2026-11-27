@@ -348,9 +348,9 @@ internal static class VoiceMessageSender
         // by hand. Resolved per call — the controller is recreated on operator
         // switch and nulled on power-off.
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
-        if (ptt?.CanTransmitHereCheck != null && !ptt.CanTransmitHereCheck())
+        if (ptt?.TransmitRulesRefusal() is { } rulesRefusal)
         {
-            Refuse(info, Lexicon.Get("audio.ptt.blocked_by_license"));
+            Refuse(info, rulesRefusal);   // #1310: the reason's own sentence
             return;
         }
 
@@ -867,9 +867,9 @@ internal static class VoiceMessageSender
             TuneDoors.RefuseSend();
             return false;
         }
-        if (ptt?.CanTransmitHereCheck != null && !ptt.CanTransmitHereCheck())
+        if (ptt?.TransmitRulesRefusal() is { } rulesRefusal)
         {
-            Refuse(info, Lexicon.Get("audio.ptt.blocked_by_license"));
+            Refuse(info, rulesRefusal);   // #1310: the reason's own sentence
             return false;
         }
         // Joining a transmission the operator already holds keys nothing; only
@@ -1366,9 +1366,9 @@ internal static class VoiceMessageSender
         }
 
         PttSafetyController? ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
-        if (ptt?.CanTransmitHereCheck != null && !ptt.CanTransmitHereCheck())
+        if (ptt?.TransmitRulesRefusal() is { } rulesRefusal)
         {
-            RefuseOrHold(info, Lexicon.Get("audio.ptt.blocked_by_license"));
+            RefuseOrHold(info, rulesRefusal);   // #1310: the reason's own sentence
             return;
         }
         // The hold after a reflected-power cut (#571), for a carrying-on that

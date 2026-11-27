@@ -14252,6 +14252,15 @@ namespace Radios
             /// </summary>
             public Func<string> GetOperatorCallsign;
             /// <summary>
+            /// Ask the application's transmit-rules judge (the TX band lockout,
+            /// #1310, and the 60 m rules, #1161) whether transmitting now is
+            /// allowed, and if not, why; the argument says whether the 60 m rule
+            /// is asked (false for the antenna tuner). Asked at the moment of
+            /// each key and never cached. Left unset, nothing is refused
+            /// (FlexBase.TransmitRules.cs).
+            /// </summary>
+            public Func<bool, TransmitVerdict> JudgeTransmitHere;
+            /// <summary>
             /// Station name
             /// </summary>
             public string StationName;

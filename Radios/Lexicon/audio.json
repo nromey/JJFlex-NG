@@ -674,6 +674,8 @@
   "audio.ptt.announce_transmitting": "Transmitting",
   "audio.ptt.announce_transmitting_on": {"text": "Transmitting on slice {slice}", "delivery": null},
   "audio.ptt.blocked_by_license": { "text": "The TX band lockout setting blocked this transmission. Check your transmit frequency and the License tab in Settings.", "delivery": null },
+  "_note_1310_lockout_mode": "DRAFT (junk box batch 31, 2026-11-26, #1310): audio.ptt.blocked_by_license_mode is the TX band lockout refusing a transmission whose frequency is inside the operator's privileges but whose mode is not allowed there (for example a Technician in SSB at 7.050 MHz). Said at every door the lockout asks at, beside the approved blocked_by_license, which stays for the frequency reason. For Codex to word.",
+  "audio.ptt.blocked_by_license_mode": { "text": "The TX band lockout setting blocked this transmission: your license class does not allow this mode here. Check your mode and transmit frequency, or the License tab in Settings.", "delivery": null },
   "_note_911": "Junk box 2026-11-08: audio.ptt.another_station_transmitting is DRAFT wording, awaiting Noel. Said when push to talk or the lock is pressed while the radio reports another station transmitting on it.",
   "audio.ptt.another_station_transmitting": {"text": "Not transmitting: another station is transmitting on this radio right now.", "delivery": null},
   "audio.ptt.check_microphone": "Check microphone",
