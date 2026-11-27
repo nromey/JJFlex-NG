@@ -157,9 +157,40 @@ internal static class ZeroPowerDoors
     /// </remarks>
     internal static bool RefuseVoxOn(FlexBase? rig, string door, bool afterMenu = false)
     {
-        if (!NoCallsign(rig)) return false;
+        if (!NoCallsign(rig)) return RefuseVoxOnForTransmitRules(rig, door, afterMenu);
         if (!WouldTurnOnSimpleVox(rig) && !WouldTurnOnBreakIn(rig)) return false;
         return RefuseNoCallsign(rig, door, afterMenu);
+    }
+
+    /// <summary>For tests: stands in for the radio's transmit rules verdict at a VOX door.</summary>
+    internal static Func<FlexBase?, TransmitVerdict>? TransmitRulesOverride { get; set; }
+
+    /// <summary>
+    /// Turning VOX or break-in ON where the transmit rules (the TX band lockout
+    /// and the 60 m rules) refuse (#1307): asked by every VOX door after the
+    /// callsign, so the field does not announce "VOX on" for a setter that then
+    /// refuses. Says that VOX (or break-in) stays off, then the reason's
+    /// sentence. The setter asks again, so a route with no door is refused too.
+    /// </summary>
+    private static bool RefuseVoxOnForTransmitRules(FlexBase? rig, string door, bool afterMenu)
+    {
+        bool breakIn = WouldTurnOnBreakIn(rig);
+        if (!breakIn && !WouldTurnOnSimpleVox(rig)) return false;
+        TransmitVerdict verdict;
+        try
+        {
+            verdict = TransmitRulesOverride?.Invoke(rig) ?? rig?.TransmitRulesVerdict(sixtyMeterRule: true) ?? TransmitVerdict.Allowed;
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("ZeroPowerDoors: transmit rules: " + ex.Message, TraceLevel.Warning);
+            return false;   // the setter asks again, from the radio's own answer
+        }
+        if (verdict.IsAllowed) return false;
+        string stays = breakIn ? Lexicon.Get("audio.ptt.break_in_stays_off") : Lexicon.Get("audio.ptt.vox_stays_off");
+        Answer("transmit rules: " + door, stays + " " + verdict.RefusalSentence(), afterMenu,
+            SpeechSubject.TransmitKeyRefused, "refused by the transmit rules: ", VerbosityLevel.Critical);
+        return true;
     }
 
     private static bool WouldTurnOnSimpleVox(FlexBase? rig)

@@ -3332,6 +3332,9 @@ namespace Radios.Tests
                 "audio.ptt.blocked_by_both",
                 "settings.license.enforce_tx_rules_label",
                 "settings.license.enforce_tx_rules_help",
+                // ...and #1307: VOX or break-in refused by the transmit rules. DRAFT.
+                "audio.ptt.vox_stays_off",
+                "audio.ptt.break_in_stays_off",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

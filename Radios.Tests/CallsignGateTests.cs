@@ -388,9 +388,13 @@ public sealed class CallsignGateTests : IDisposable
         string audio = Src("Radios/FlexBase.RemoteAudio.cs");
         Assert.Contains("if (RefusedForNoCallsign(\"a recording for VOX\")) return;", audio, StringComparison.Ordinal);
         // Both halves of VOX on (J8 and J4), asked before the tone refusal.
+        // #1307 (batch 31): the transmit rules are asked between the callsign
+        // and the tone refusal, so the callsign still comes first.
         Assert.Contains("if (val && TurnsOnSimpleVox(s) && RefusedForNoCallsign(\"VOX\")) return;\n"
-            + "                if (val && TurnsOnBreakIn(s) && RefusedForNoCallsign(\"CW break-in\")) return;\n"
-            + "                if (val && (TxToneEngaged || TxReferenceArmed))", flex, StringComparison.Ordinal);
+            + "                if (val && TurnsOnBreakIn(s) && RefusedForNoCallsign(\"CW break-in\")) return;\n", flex, StringComparison.Ordinal);
+        int callsign = flex.IndexOf("if (val && TurnsOnBreakIn(s) && RefusedForNoCallsign(\"CW break-in\")) return;", StringComparison.Ordinal);
+        int tone = flex.IndexOf("if (val && (TxToneEngaged || TxReferenceArmed))", callsign, StringComparison.Ordinal);
+        Assert.True(callsign > 0 && tone > callsign && tone - callsign < 900, "the tone refusal follows the callsign's");
     }
 
     /// <summary>

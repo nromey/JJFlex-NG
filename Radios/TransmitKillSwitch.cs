@@ -432,6 +432,21 @@ namespace Radios
                 return false;
             }
 
+            // The transmit rules (#1307), for MOX only: a tune carrier is never
+            // asked (ruled 2026-11-18). Here, before the lock block records the
+            // carrier as raised, for the reason the callsign is asked here: a
+            // refusal inside EnqueueKeyOn would come behind a call that returned
+            // true.
+            if (carrier == Carrier.Mox)
+            {
+                string rules = RefusedByTransmitRules(rig, "the " + carrier + " carrier");
+                if (rules != null)
+                {
+                    _lastRaiseRefusal = rules;
+                    return false;
+                }
+            }
+
             lock (Gate)
             {
                 if (_arms == 0 || !ReferenceEquals(_rig, rig))
@@ -494,6 +509,24 @@ namespace Radios
         {
             if (rig == null || !rig.RefusedForNoCallsign(what)) return null;
             return FlexBase.NoCallsignRefusal;
+        }
+
+        /// <summary>
+        /// The transmit rules (#1307: the TX band lockout and the 60 m rules) for a
+        /// keying that does not start at one of the operator's doors: the Fix
+        /// tool's injected and spoken transmit checks ask this before their gate
+        /// and countdown, and <see cref="RaiseCarrier(FlexBase, Carrier, object)"/>
+        /// asks it again for MOX. Never for tune: the Fix tool's tune check does
+        /// not ask it. Null when allowed (or the radio was handed no way to ask);
+        /// otherwise the refusal is traced and spoken by the radio's admission
+        /// boundary, and its sentence returned for the caller's detail line.
+        /// </summary>
+        /// <param name="rig">The radio. None reads as not refused.</param>
+        /// <param name="what">What would have keyed, for the trace.</param>
+        public static string RefusedByTransmitRules(FlexBase rig, string what)
+        {
+            if (rig == null) return null;
+            return rig.TransmitRulesRefusal(what);
         }
 
         /// <summary>

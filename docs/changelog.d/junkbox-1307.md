@@ -1,0 +1,2 @@
+<!-- DRAFT: for Codex to word. Not approved copy. -->
+- The TX band lockout now also covers CW messages and CW typing, the antenna tuner, turning VOX or CW break-in on, and the Fix tool's transmit checks, so each of these is refused outside your privileges just as push to talk is. Tune is still not checked. VOX and break-in are checked when you turn them on; once they are on, the radio keys itself and JJ Flexible does not check again.

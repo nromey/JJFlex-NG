@@ -8840,6 +8840,7 @@ namespace Radios
             t_keyAskedHere = null;
             if (RefusedForCheckTeardown("transmit")) return;
             if (RefusedForNoCallsign("transmit")) return;   // #335
+            if (RefusedByTransmitRules("transmit")) return;   // #1307: the lockout and the 60 m rules
             if (TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
             // A new transmission, counted under the falling cue's gate before
             // it is queued (repair round 6, #863 S1): a falling cue being
@@ -10439,6 +10440,8 @@ namespace Radios
                 // runs. Turning it off is never refused.
                 if (value && RefusedForCheckTeardown("antenna tuner")) return;
                 if (value && RefusedForNoCallsign("antenna tuner")) return;   // #335
+                // #1307: the lockout asks too; the 60 m rule does not (a tune carrier).
+                if (value && RefusedByTransmitRules("antenna tuner", sixtyMeterRule: false)) return;
                 switch (_FlexTunerType)
                 {
                     case FlexTunerTypes.manual:
@@ -11258,6 +11261,12 @@ namespace Radios
                 // radio's front panel is left alone.
                 if (val && TurnsOnSimpleVox(s) && RefusedForNoCallsign("VOX")) return;
                 if (val && TurnsOnBreakIn(s) && RefusedForNoCallsign("CW break-in")) return;
+                // #1307: the transmit rules, judged at the moment VOX or break-in
+                // is turned on (never while it runs: the radio keys itself then).
+                if (val && TurnsOnSimpleVox(s)
+                    && RefusedByTransmitRules("VOX", spokenPrefix: Lexicon.Get("audio.ptt.vox_stays_off"))) return;
+                if (val && TurnsOnBreakIn(s)
+                    && RefusedByTransmitRules("CW break-in", spokenPrefix: Lexicon.Get("audio.ptt.break_in_stays_off"))) return;
                 if (val && (TxToneEngaged || TxReferenceArmed))
                 {
                     ScreenReaderOutput.Speak(TxReferenceArmed
@@ -14094,6 +14103,7 @@ namespace Radios
             if (CwKeyingRefused("a CW message")) return false;
             if (RefusedForCheckTeardown("a CW message")) return false;   // #835
             if (RefusedForNoCallsign("a CW message")) return false;   // #335
+            if (RefusedByTransmitRules("a CW message")) return false;   // #1307
             lock (cwBuffer)
             {
                 if (CWBuffering)
@@ -14127,6 +14137,7 @@ namespace Radios
             if (CwKeyingRefused("CW typing")) return false;   // #571, as the string form above
             if (RefusedForCheckTeardown("CW typing")) return false;   // #835
             if (RefusedForNoCallsign("CW typing")) return false;   // #335
+            if (RefusedByTransmitRules("CW typing")) return false;   // #1307
             if (CWBuffering)
             {
                 cwBuffer.Text += c;

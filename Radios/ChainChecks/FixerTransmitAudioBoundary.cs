@@ -484,6 +484,13 @@ namespace Radios.ChainChecks
                 facts.Detail = noCallsign;
                 return facts;
             }
+            // The transmit rules (#1307), asked here for the same reason.
+            string rules = TransmitKillSwitch.RefusedByTransmitRules(rig, "the injected transmit check");
+            if (rules != null)
+            {
+                facts.Detail = rules;
+                return facts;
+            }
 
             FixerTransmitGate.Decision d = _gate.Request(
                 _gate.RunId, stageId, stageTransmits: true,
@@ -807,6 +814,13 @@ namespace Radios.ChainChecks
             if (noCallsign != null)
             {
                 facts.Detail = noCallsign;
+                return facts;
+            }
+            // The transmit rules (#1307), asked here for the same reason.
+            string rules = TransmitKillSwitch.RefusedByTransmitRules(rig, "the spoken transmit check");
+            if (rules != null)
+            {
+                facts.Detail = rules;
                 return facts;
             }
 

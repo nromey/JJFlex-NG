@@ -57,6 +57,9 @@ public sealed class TransmitRulesDoorsTests : IDisposable
     {
         FlexBase.CallsignCheckOn = _callsignCheckWas;
         ZeroPowerDoors.AtZeroOverride = null;
+        ZeroPowerDoors.SimpleVoxOverride = null;
+        ZeroPowerDoors.BreakInOverride = null;
+        ZeroPowerDoors.TransmitRulesOverride = null;
         ZeroPowerDoors.Forget();
         if (_controller.IsTransmitting) _controller.EscapeUnlock();
         _controller.Dispose();
@@ -145,6 +148,35 @@ public sealed class TransmitRulesDoorsTests : IDisposable
         _verdict = new TransmitVerdict(LockoutReason.Mode);
         _controller.EscapeUnlock();
         Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+    }
+
+    /// <summary>
+    /// #1307: every VOX door (the VOX field, the VOX box, the VOX menu) asks
+    /// ZeroPowerDoors.RefuseVoxOn, which now asks the transmit rules after the
+    /// callsign, so a door never announces "VOX on" for a setter that refuses.
+    /// </summary>
+    [Fact]
+    public void Turning_VOX_or_break_in_on_is_refused_at_the_door_and_says_it_stays_off()
+    {
+        ZeroPowerDoors.SimpleVoxOverride = _ => true;
+        ZeroPowerDoors.BreakInOverride = _ => false;
+        ZeroPowerDoors.TransmitRulesOverride = _ => _verdict;
+        _verdict = new TransmitVerdict(LockoutReason.Mode);
+        var said = Said(() => Assert.True(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX field")));
+        Assert.Equal(new[] { Lexicon.Get("audio.ptt.vox_stays_off") + " " + Mode }, said);
+
+        ZeroPowerDoors.Forget();
+        ZeroPowerDoors.SimpleVoxOverride = _ => false;
+        ZeroPowerDoors.BreakInOverride = _ => true;
+        _verdict = TransmitVerdict.LockoutFrequency;
+        said = Said(() => Assert.True(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX box")));
+        Assert.Equal(new[] { Lexicon.Get("audio.ptt.break_in_stays_off") + " " + Frequency }, said);
+
+        _verdict = TransmitVerdict.Allowed;   // positive control
+        Assert.False(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX menu"));
+        ZeroPowerDoors.BreakInOverride = _ => false;   // nothing would turn on: never refused
+        _verdict = TransmitVerdict.LockoutFrequency;
+        Assert.False(ZeroPowerDoors.RefuseVoxOn(_rig, "the VOX menu"));
     }
 
     [Fact]
