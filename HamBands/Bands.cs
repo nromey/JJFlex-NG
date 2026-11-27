@@ -194,6 +194,12 @@ namespace HamBands
         // Band Plans dialog name a division by its first mode.
         private static readonly Modes[] AllEmissions =
             { Modes.PhoneCW, Modes.RTTYData, Modes.Image, Modes.MCW };
+        // 2200 m and 630 m (97.305(c)(1) and (2)): phone, RTTY, data and image,
+        // and CW everywhere under 97.305(a). No MCW: MCW is not unmodulated CW,
+        // and neither paragraph grants it (repair round 1 of batch 31; MCW stays
+        // on VHF and up, where 97.305(c)(4) and up grant it).
+        private static readonly Modes[] LowFrequencyEmissions =
+            { Modes.PhoneCW, Modes.RTTYData, Modes.Image };
         // 60 m (97.303(h)(3), 97.305(c)(3)(iii), 97.307(f)(14)): phone, RTTY,
         // data and CW, never wider than 2.8 kHz. The lockout judges the class's
         // privileges and the allocation's edges only, so phone is marked as
@@ -229,12 +235,12 @@ namespace HamBands
         public static BandItem[] TheBands = new BandItem[] {
             // 2200 m, 135.7 to 137.8 kHz, General and up (97.301(b) to (d); 97.305(c)(1)).
             new BandItem(BandNames.m2190, 135700, 137800,
-                new BandDivision[] { new BandDivision(135700, 137800, GeneralAndUp, AllEmissions) }),
+                new BandDivision[] { new BandDivision(135700, 137800, GeneralAndUp, LowFrequencyEmissions) }),
             // 630 m, 472 to 479 kHz, General and up (97.301(b) to (d); 97.305(c)(2)).
             // The member is still named m560 for band memory's sake; 501 to 504 kHz,
             // which it used to hold, is not an amateur allocation.
             new BandItem(BandNames.m560, 472000, 479000,
-                new BandDivision[] { new BandDivision(472000, 479000, GeneralAndUp, AllEmissions) }),
+                new BandDivision[] { new BandDivision(472000, 479000, GeneralAndUp, LowFrequencyEmissions) }),
             new BandItem(BandNames.m160, 1800000, 2000000,
                 new BandDivision[] {
                     new BandDivision(1800000, 2000000,
@@ -432,6 +438,66 @@ namespace HamBands
                 new BandDivision[] { new BandDivision(275000000000, 3000000000000, TechnicianAndUp, AllEmissions) })
         };
 
+        // ---------------- ADIF ----------------
+
+        // ADIF 3.1.8's Band enumeration (adif.org.uk/318, read 2026-11-27),
+        // its own names and edges in hertz, both edges inclusive. Not ours:
+        // ADIF's bands are not Part 97's (it has 8 m, 5 m and 4 m, 60 m from
+        // 5.06 MHz, 9 cm and 560 m, and nothing for 219 to 220 MHz or 275 to
+        // 300 GHz), which is why this is a function of frequency and never a
+        // BandItem member: m125 alone spans two ADIF answers.
+        private static readonly (string Name, ulong Low, ulong High)[] AdifBands =
+        {
+            ("2190m", 135_700, 137_800),
+            ("630m", 472_000, 479_000),
+            ("560m", 501_000, 504_000),
+            ("160m", 1_800_000, 2_000_000),
+            ("80m", 3_500_000, 4_000_000),
+            ("60m", 5_060_000, 5_450_000),
+            ("40m", 7_000_000, 7_300_000),
+            ("30m", 10_100_000, 10_150_000),
+            ("20m", 14_000_000, 14_350_000),
+            ("17m", 18_068_000, 18_168_000),
+            ("15m", 21_000_000, 21_450_000),
+            ("12m", 24_890_000, 24_990_000),
+            ("10m", 28_000_000, 29_700_000),
+            ("8m", 40_000_000, 45_000_000),
+            ("6m", 50_000_000, 54_000_000),
+            ("5m", 54_000_001, 69_900_000),
+            ("4m", 70_000_000, 71_000_000),
+            ("2m", 144_000_000, 148_000_000),
+            ("1.25m", 222_000_000, 225_000_000),
+            ("70cm", 420_000_000, 450_000_000),
+            ("33cm", 902_000_000, 928_000_000),
+            ("23cm", 1_240_000_000, 1_300_000_000),
+            ("13cm", 2_300_000_000, 2_450_000_000),
+            ("9cm", 3_300_000_000, 3_500_000_000),
+            ("6cm", 5_650_000_000, 5_925_000_000),
+            ("3cm", 10_000_000_000, 10_500_000_000),
+            ("1.25cm", 24_000_000_000, 24_250_000_000),
+            ("6mm", 47_000_000_000, 47_200_000_000),
+            ("4mm", 75_500_000_000, 81_000_000_000),
+            ("2.5mm", 119_980_000_000, 123_000_000_000),
+            ("2mm", 134_000_000_000, 149_000_000_000),
+            ("1mm", 241_000_000_000, 250_000_000_000),
+            ("submm", 300_000_000_000, 7_500_000_000_000),
+        };
+
+        /// <summary>
+        /// The ADIF BAND value for a frequency, in hertz: ADIF 3.1.8's own name
+        /// for the band it falls in, or "" where ADIF defines no band (ADIF allows
+        /// FREQ without BAND). Pure. For the logger and the ADIF export only
+        /// (repair round 1 of junk box batch 31): <see cref="BandItem.Name"/> is
+        /// the display label and is not an ADIF value ("2200m", "33cm" and "5cm"
+        /// are Part 97's names; ADIF's are 2190m, 33cm and 6cm).
+        /// </summary>
+        public static string AdifBand(ulong hz)
+        {
+            foreach (var b in AdifBands)
+                if (hz >= b.Low && hz <= b.High) return b.Name;
+            return "";
+        }
+
         /// <summary>
         /// Return the band object
         /// </summary>
@@ -527,18 +593,7 @@ namespace HamBands
                 Collection<BandDivision> c = new Collection<BandDivision>();
                 foreach (BandDivision b in rv.Divisions)
                 {
-                    if (b.Mode != null)
-                    {
-                        foreach (Modes m in b.Mode)
-                        {
-                            if (m == mode)
-                            {
-                                c.Add(b);
-                                break;
-                            }
-                        }
-                    }
-                    else c.Add(b);
+                    if (DivisionAllows(b, mode)) c.Add(b);
                 }
                 if (c.Count > 0)
                 {
@@ -569,18 +624,7 @@ namespace HamBands
                 Collection<BandDivision> c = new Collection<BandDivision>();
                 foreach (BandDivision b in rv.Divisions)
                 {
-                    if (b.Mode != null)
-                    {
-                        foreach (Modes m in b.Mode)
-                        {
-                            if (m == mode)
-                            {
-                                c.Add(b);
-                                break;
-                            }
-                        }
-                    }
-                    else c.Add(b);
+                    if (DivisionAllows(b, mode)) c.Add(b);
                 }
                 if (c.Count > 0)
                 {
@@ -593,6 +637,76 @@ namespace HamBands
                 }
             }
             return rv;
+        }
+    
+        // ---------------- the Band Plans browser's mode filter ----------------
+
+        /// <summary>
+        /// Whether a division marked <paramref name="divisionMark"/> is a match
+        /// for the Band Plans browser's mode filter <paramref name="filter"/>
+        /// (repair round 1 of junk box batch 31; both <see cref="Query(BandNames, Modes)"/>
+        /// and <see cref="Query(BandNames, Licenses, Modes)"/> ask it, through
+        /// <see cref="DivisionAllows"/>). Pure.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>The browser's meaning, deliberately coarser than the transmit
+        /// judge's</b> (<c>Radios.TransmitBandLockout.Permits</c>, which is not
+        /// changed by this and must not be made to agree with it: agreement would
+        /// loosen what the lockout admits, for example AM in a Technician's 28.3 to
+        /// 28.5 MHz single-sideband segment). The mapping is the orchestrator's
+        /// decision:</para>
+        /// <list type="bullet">
+        /// <item>none and CW: every division (CW is allowed throughout a class's
+        /// privileges, 97.305(a)); see <see cref="DivisionAllows"/>.</item>
+        /// <item>MCW: MCW divisions only.</item>
+        /// <item>Phone and CW, USB, and SSB: the phone divisions only (PhoneCW, USB,
+        /// SSB). Not CW everywhere: Band Plans preselects Phone and CW for every
+        /// slice that is not CW, and a phone operator must not see the CW-only
+        /// segments as matches.</item>
+        /// <item>Image: Image.</item>
+        /// <item>RTTY and Data: RTTYData and M60Data.</item>
+        /// <item>Data: RTTYData, M60Data and Data.</item>
+        /// <item>Data on 60 meters: M60Data.</item>
+        /// </list>
+        /// </remarks>
+        public static bool Allows(Modes divisionMark, Modes filter)
+        {
+            switch (filter)
+            {
+                case Modes.none:
+                case Modes.CW:
+                    return true;
+                case Modes.MCW:
+                    return divisionMark == Modes.MCW;
+                case Modes.PhoneCW:
+                case Modes.USB:
+                case Modes.SSB:
+                    return divisionMark is Modes.PhoneCW or Modes.USB or Modes.SSB;
+                case Modes.Image:
+                    return divisionMark == Modes.Image;
+                case Modes.RTTYData:
+                    return divisionMark is Modes.RTTYData or Modes.M60Data;
+                case Modes.Data:
+                    return divisionMark is Modes.RTTYData or Modes.M60Data or Modes.Data;
+                case Modes.M60Data:
+                    return divisionMark == Modes.M60Data;
+                default:
+                    return divisionMark == filter;
+            }
+        }
+
+        /// <summary>
+        /// Whether a division is a match for the browser's mode filter: every
+        /// division for none and CW, and a division that lists no modes for any
+        /// filter; otherwise any of its marks <see cref="Allows"/> the filter.
+        /// </summary>
+        private static bool DivisionAllows(BandDivision d, Modes filter)
+        {
+            if (filter == Modes.none || filter == Modes.CW) return true;
+            if (d.Mode == null || d.Mode.Length == 0) return true;
+            foreach (var m in d.Mode)
+                if (Allows(m, filter)) return true;
+            return false;
         }
     }
 }

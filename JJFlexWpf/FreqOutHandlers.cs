@@ -4432,7 +4432,7 @@ public class FreqOutHandlers
     internal static string FormatMode(Bands.Modes mode) => mode switch
     {
         Bands.Modes.CW => Lexicon.Get("settings.band.mode_cw"),
-        Bands.Modes.MCW => Lexicon.Get("settings.band.mode_cw"),
+        Bands.Modes.MCW => Lexicon.Get("settings.band.mode_mcw"),   // repair round 1: never shown as CW
         Bands.Modes.PhoneCW => Lexicon.Get("settings.band.mode_phone_cw"),
         Bands.Modes.USB => Lexicon.Get("settings.band.mode_usb"),
         Bands.Modes.Image => Lexicon.Get("settings.band.mode_image"),

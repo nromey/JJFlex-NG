@@ -89,6 +89,38 @@ public sealed class BandWordsTests
         Assert.Contains("d.Mode.Select(FreqOutHandlers.FormatMode)", body, StringComparison.Ordinal);
     }
 
+    // ---- repair round 1: the formatted result itself ----
+
+    private static string Plan(Bands.BandItem band) =>
+        (string)typeof(NativeMenuBar).GetMethod("FormatBandPlan",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.Invoke(null, new object[] { band })!;
+
+    [Fact]
+    public void Band_Plans_shows_fractional_kilohertz_exactly()
+    {
+        AssertWindowless();
+        string lf = Plan(Bands.Query(Bands.BandNames.m2190)!);
+        Assert.Contains("135.7 to 137.8 kilohertz", lf, StringComparison.Ordinal);
+        string sixty = Plan(Bands.Query(Bands.BandNames.m60)!);
+        Assert.Contains("5330.6 to 5333.4", sixty, StringComparison.Ordinal);
+        Assert.Contains("5351.5 to 5366.5", sixty, StringComparison.Ordinal);
+        Assert.Contains("5300 to 5500 kilohertz", sixty, StringComparison.Ordinal);   // whole kilohertz stay whole
+        Assert.DoesNotContain("5330 to 5333", sixty, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_MCW_filtered_Band_Plans_result_says_MCW_and_never_CW()
+    {
+        AssertWindowless();
+        string mcw = Lexicon.Get("settings.band.mode_mcw");
+        Assert.NotEqual(Lexicon.Get("settings.band.mode_cw"), mcw);
+        string result = Plan(Bands.Query(Bands.BandNames.m6, Bands.Modes.MCW)!);
+        string division = result.Split('\n').Single(l => l.StartsWith("50100 to 54000", StringComparison.Ordinal)).TrimEnd('\r');
+        Assert.EndsWith(", " + mcw, division, StringComparison.Ordinal);
+        Assert.DoesNotContain(", " + Lexicon.Get("settings.band.mode_cw") + ",", division + ",", StringComparison.Ordinal);
+        Assert.Equal(mcw, FreqOutHandlers.FormatMode(Bands.Modes.MCW));
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

@@ -109,11 +109,13 @@ Public Class LogSession
             fld.Data = val
             ' Special case for setting the band.
             If (val <> "") And (adif = "FREQ") Then
-                Dim item As Bands.BandItem
+                ' ADIF's own band name for the frequency, "" where ADIF defines
+                ' none. Never our band table's display label, which was not an
+                ' ADIF value, and never Query(...).Name, which threw when the
+                ' table found no band (repair round 1 of junk box batch 31).
                 Dim bandFld As LogFieldElement = getField(AdifTags.ADIF_Band, False, dict)
                 If bandFld IsNot Nothing Then
-                    item = Bands.Query(FreqInt64(val))
-                    bandFld.Data = item.Name
+                    bandFld.Data = Bands.AdifBand(FreqInt64(val))
                 End If
             End If
         End If

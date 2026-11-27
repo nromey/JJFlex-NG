@@ -174,7 +174,21 @@ checkExit:
             If fld.ADIFTag(0) <> "$"c Then
                 ' Not internal field
                 ' Preprocessing
+                Dim value As String = fld.Data
                 Select Case fld.ADIFTag
+                    Case AdifTags.ADIF_Band
+                        ' ADIF's own band name for the QSO's frequency, so an
+                        ' entry logged under a label ADIF does not define (35cm)
+                        ' exports a value ADIF knows. Left as logged when the
+                        ' frequency is missing or gives no ADIF band, so a
+                        ' frequency written in another form never loses a band
+                        ' the entry had. Not written back into the entry (repair
+                        ' round 1 of junk box batch 31).
+                        Dim freqText As String = session.GetFieldText(AdifTags.ADIF_RXFreq)
+                        If freqText <> vbNullString Then
+                            Dim adifBand As String = HamBands.Bands.AdifBand(FreqInt64(freqText))
+                            If adifBand <> "" Then value = adifBand
+                        End If
                     Case AdifTags.ADIF_RXFreq, AdifTags.ADIF_TXFreq
                         ' Frequencies' formats are a little different.
                         fld.Data = formatADIFFreq(fld.Data)
@@ -199,7 +213,8 @@ checkExit:
                                 fld.Data = "RTTY"
                         End Select
                 End Select
-                outStr &= BuildADIFTag(fld.ADIFTag, fld.Data)
+                If fld.ADIFTag <> AdifTags.ADIF_Band Then value = fld.Data
+                outStr &= BuildADIFTag(fld.ADIFTag, value)
             End If
         Next
         ' Return nothing if nothing built.

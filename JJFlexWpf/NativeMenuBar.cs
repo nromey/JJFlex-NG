@@ -4340,7 +4340,9 @@ public class NativeMenuBar : IDisposable
     /// </summary>
     private static string FormatBandPlan(Bands.BandItem band)
     {
-        static string KHz(ulong hz) => (hz / 1000).ToString();
+        // Fractional kilohertz exactly (repair round 1 of junk box batch 31):
+        // 135.7 to 137.8, 5330.6 to 5333.4, 5351.5 to 5366.5, never truncated.
+        static string KHz(ulong hz) => (hz / 1000m).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"{band.Name}: {KHz(band.Low)} to {KHz(band.High)} kilohertz");
         if (band.Divisions != null)

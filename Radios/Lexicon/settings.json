@@ -108,7 +108,7 @@
   "settings.band.mode_ssb": { "text": "SSB phone and CW", "delivery": null },
   "settings.band.mode_usb": "USB",
   "settings.band.name_10m": "10 meter",
-  "_note_1312_band_names": "DRAFT (junk box batch 31, 2026-11-26, #1312): the spoken names of every band from the corrected US table that had none, said in Entering {band} band (settings.band.entering) and nowhere else, so each reads after Entering and before band. name_above_275ghz reads awkwardly there (Entering above 275 gigahertz band) and wants Codex. name_9cm belongs to a retired band that the notices never reach; it is here so no band can fall back to its enum name. settings.band.mode_mcw and mode_60m_data name two modes in the Band Plans dialog's mode list only, where CW and Data already name two others. For Codex to word.",
+  "_note_1312_band_names": "DRAFT (junk box batch 31, 2026-11-26, #1312): the spoken names of every band from the corrected US table that had none, said in Entering {band} band (settings.band.entering) and nowhere else, so each reads after Entering and before band. name_above_275ghz reads awkwardly there (Entering above 275 gigahertz band) and wants Codex. name_9cm belongs to a retired band that the notices never reach; it is here so no band can fall back to its enum name. settings.band.mode_mcw and mode_60m_data name two modes in the Band Plans dialog's mode list, where CW and Data already name two others; since repair round 1, mode_mcw also names MCW in the Band Plans result. For Codex to word.",
   "settings.band.name_2200m": { "text": "2200 meter", "delivery": null },
   "settings.band.name_630m": { "text": "630 meter", "delivery": null },
   "settings.band.name_2m": { "text": "2 meter", "delivery": null },

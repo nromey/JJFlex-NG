@@ -470,11 +470,13 @@ Friend Class LogEntry
             setFieldText(AdifTags.ADIF_TXFreq, FormatFreq(RigControl.TXFrequency))
         End If
         If getFieldText(AdifTags.ADIF_Band, dummy) AndAlso (dummy = vbNullString) Then
-            ' Set the band here so dup checking works.
-            Dim item As HamBands.Bands.BandItem
-            item = HamBands.Bands.Query(RigControl.TXFrequency)
-            If item IsNot Nothing Then
-                setFieldText(AdifTags.ADIF_Band, item.Name)
+            ' Set the band here so dup checking works. ADIF's own band name for
+            ' the frequency, whether or not our band table has a band there, and
+            ' none where ADIF defines none (the display label is not an ADIF
+            ' value: repair round 1 of junk box batch 31).
+            Dim adifBand As String = HamBands.Bands.AdifBand(RigControl.TXFrequency)
+            If adifBand <> "" Then
+                setFieldText(AdifTags.ADIF_Band, adifBand)
             End If
         End If
     End Sub
