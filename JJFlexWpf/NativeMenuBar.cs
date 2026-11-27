@@ -2822,7 +2822,15 @@ public class NativeMenuBar : IDisposable
                 AddSep(antSub);
                 AddWired(antSub, "Start tune\tCtrl+T", () =>
                 {
-                    if (Rig?.FlexTunerOn == false && Rig?.TuneAskedOrUp == false && ZeroPowerDoors.RefuseTunePress(Rig, "the ATU menu", afterMenu: true)) return;
+                    // Repair round 2 of junk box batch 31: on the outcome where the
+                    // press starts the ATU, the tuner's whole door is asked here,
+                    // after the menu closes, so its lockout and teardown refusals
+                    // are not cut by the menu closing; the tune carrier and "no
+                    // tuner" keep RefuseTunePress, never the transmit rules.
+                    if (Rig?.FlexTunerOn == false && Rig?.TuneAskedOrUp == false
+                        && (Radios.TunePress.For(Rig.HasATU, Rig.FlexTunerType) == Radios.TunePressOutcome.AtuTune
+                            ? ZeroPowerDoors.RefuseTunerStart(Rig, "the ATU menu", afterMenu: true)
+                            : ZeroPowerDoors.RefuseTunePress(Rig, "the ATU menu", afterMenu: true))) return;
                     _window.StartATUTuneCycle();
                 });
             }

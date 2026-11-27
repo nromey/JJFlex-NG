@@ -250,6 +250,42 @@ public sealed class TransmitRulesDoorsTests : IDisposable
         Assert.False(ZeroPowerDoors.RefuseTunePress(_rig, "the tune carrier"));
     }
 
+    /// <summary>
+    /// Repair round 2 (the #1307 re-checks' blocker): Slice, Antenna, Start tune
+    /// asked only RefuseTunePress after the menu, so the tuner door's lockout and
+    /// teardown refusals were said at once, as the menu closed, and could be cut.
+    /// The menu's handler cannot run windowless, so its statement is pinned by
+    /// source and the door is driven with afterMenu: nothing said at once, the
+    /// same refusal after the menu's wait.
+    /// </summary>
+    [Fact]
+    public void The_menu_s_Start_tune_asks_the_tuner_s_door_after_the_menu_closes()
+    {
+        string menu = System.Text.RegularExpressions.Regex.Replace(Source("NativeMenuBar.cs"), @"\s+", " ");
+        Assert.Contains("if (Rig?.FlexTunerOn == false && Rig?.TuneAskedOrUp == false && "
+            + "(Radios.TunePress.For(Rig.HasATU, Rig.FlexTunerType) == Radios.TunePressOutcome.AtuTune "
+            + "? ZeroPowerDoors.RefuseTunerStart(Rig, \"the ATU menu\", afterMenu: true) "
+            + ": ZeroPowerDoors.RefuseTunePress(Rig, \"the ATU menu\", afterMenu: true))) return; "
+            + "_window.StartATUTuneCycle();", menu, StringComparison.Ordinal);
+
+        int asked = 0;
+        ZeroPowerDoors.TransmitRulesOverride = (_, sixty) => { asked++; Assert.False(sixty); return _verdict; };
+        _verdict = TransmitVerdict.LockoutFrequency;
+        string marker = "marker " + Guid.NewGuid().ToString("N");
+        ScreenReaderOutput.Speak(marker, VerbosityLevel.Critical, true);
+        Assert.True(ZeroPowerDoors.RefuseTunerStart(_rig, "the ATU menu", afterMenu: true));
+        Assert.Equal(1, asked);
+        Assert.Empty(ScreenReaderOutput.RecentMessages.TakeWhile(m => m != marker));   // nothing while the menu closes
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        List<string> later;
+        do
+        {
+            System.Threading.Thread.Sleep(50);
+            later = ScreenReaderOutput.RecentMessages.TakeWhile(m => m != marker).ToList();
+        } while (later.Count == 0 && DateTime.UtcNow < deadline);
+        Assert.Equal(new[] { Frequency }, later);   // the same refusal, after the menu's wait
+    }
+
     [Fact]
     public void A_door_with_no_PTT_controller_asks_the_radio_s_judge_itself()
     {
