@@ -1,0 +1,2 @@
+<!-- DRAFT: for Codex to word. Not approved copy. -->
+- With the TX band lockout on, 2 meters and every band above it now follow the US privileges for your license class, so VHF, UHF and microwave transmissions inside your privileges are no longer refused. The 2200 meter and 630 meter bands now have their correct edges, and the lockout on 60 meters now allows only the four channels and the segment.

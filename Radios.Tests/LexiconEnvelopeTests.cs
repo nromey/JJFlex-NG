@@ -3295,6 +3295,9 @@ namespace Radios.Tests
                 "connect.startup.no_callsign_reminder_title",
                 "connect.startup.no_callsign_reminder_body",
                 "settings.silenced.no_callsign_reminder",
+                // Junk box batch 31 (2026-11-26), #1282: the band table's
+                // SSB-only division (28.3 to 28.5 MHz, Novice and Technician). DRAFT.
+                "settings.band.mode_ssb",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

@@ -4401,6 +4401,8 @@ public class FreqOutHandlers
         Bands.Modes.Image => Lexicon.Get("settings.band.mode_image"),
         Bands.Modes.RTTYData => Lexicon.Get("settings.band.mode_rtty_data"),
         Bands.Modes.M60Data => Lexicon.Get("settings.band.mode_data"),
+        Bands.Modes.SSB => Lexicon.Get("settings.band.mode_ssb"),
+        Bands.Modes.Data => Lexicon.Get("settings.band.mode_data"),
         _ => ""
     };
 

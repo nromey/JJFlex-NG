@@ -104,6 +104,8 @@
   "settings.band.mode_image": "Image",
   "settings.band.mode_phone_cw": "Phone and CW",
   "settings.band.mode_rtty_data": "RTTY and Data",
+  "_note_1282_band_table": "DRAFT (junk box batch 31, 2026-11-26): settings.band.mode_ssb names a band division where single-sideband voice is the only phone, said in the sub-band notice (Entering Novice ...) and shown in Band Plans: today only 28.3 to 28.5 MHz for Novice and Technician, where Part 97 allows CW and SSB voice only. For Codex to word.",
+  "settings.band.mode_ssb": { "text": "SSB phone and CW", "delivery": null },
   "settings.band.mode_usb": "USB",
   "settings.band.name_10m": "10 meter",
   "settings.band.name_12m": "12 meter",

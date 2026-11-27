@@ -27,12 +27,23 @@ public sealed class SixtyMeterLockoutTests
     private static bool Allowed(ulong freq, int filterLow, int filterHigh, Bands.Licenses license) =>
         TransmitBandLockout.Allows(freq, null, filterLow, filterHigh, license);
 
+    // #1282 (batch 31): the 60 m division is now the four 2.8 kHz channels and
+    // the segment (97.303(h)(3)), so a channel is worked from its USB dial,
+    // 1.5 kHz below the centre. This case judged USB at the CENTRE until then,
+    // which puts the signal 1.4 kHz past the channel's top edge; it changed on
+    // purpose, and the centre is now pinned as refused below.
     [Theory]
     [InlineData(Bands.Licenses.general)]
     [InlineData(Bands.Licenses.advanced)]
     [InlineData(Bands.Licenses.extra)]
     public void A_General_or_higher_on_a_60_metre_channel_may_transmit(Bands.Licenses license) =>
-        Assert.True(UsbAllowed(5_332_000, license));
+        Assert.True(UsbAllowed(5_330_500, license));
+
+    [Theory]
+    [InlineData(Bands.Licenses.general)]
+    [InlineData(Bands.Licenses.extra)]
+    public void USB_at_a_60_metre_channel_centre_spills_past_the_channel_and_is_refused(Bands.Licenses license) =>
+        Assert.False(UsbAllowed(5_332_000, license));
 
     [Theory]
     [InlineData(Bands.Licenses.technition)]
@@ -40,12 +51,16 @@ public sealed class SixtyMeterLockoutTests
     public void A_Technician_or_Novice_on_60_metres_is_refused(Bands.Licenses license) =>
         Assert.False(UsbAllowed(5_332_000, license));
 
+    // #1282 (batch 31): the single 5,300,000 to 5,500,000 Hz division this
+    // asserted became the four channels and the segment; changed on purpose.
     [Fact]
     public void The_60_metre_division_is_in_hertz_like_every_other()
     {
         var sixty = Bands.Query(Bands.BandNames.m60, Bands.Licenses.general);
         Assert.Equal(Bands.BandNames.m60, Bands.Query(5_332_000UL)!.Band);
-        Assert.Contains(sixty.Divisions, d => d.Low == 5_300_000UL && d.High == 5_500_000UL);
+        Assert.Contains(sixty.Divisions, d => d.Low == 5_330_600UL && d.High == 5_333_400UL);
+        Assert.Contains(sixty.Divisions, d => d.Low == 5_351_500UL && d.High == 5_366_500UL);
+        Assert.DoesNotContain(sixty.Divisions, d => d.Low == 5_300_000UL && d.High == 5_500_000UL);
     }
 
     [Fact]
