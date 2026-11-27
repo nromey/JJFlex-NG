@@ -752,6 +752,15 @@ Friend Class LogEntry
         If isDupChecking Then
             ' Check for a dup, prime the session.
             session.SetFieldText(AdifTags.ADIF_Mode, getFieldTextValue(AdifTags.ADIF_Mode))
+            ' The duplicate key takes an empty BAND from the transmit frequency,
+            ' else the receive one (LogDupChecking.BandKey), so this contact's own
+            ' frequencies are primed too, never the previous record's left in the
+            ' session (repair round 3 of junk box batch 31). FREQ, then TXFREQ,
+            ' then BAND, in that order: SetFieldText overwrites BAND from a
+            ' non-empty FREQ, the receive frequency in this log, so BAND set last
+            ' keeps the form's own BAND, typed or empty.
+            session.SetFieldText(AdifTags.ADIF_RXFreq, getFieldTextValue(AdifTags.ADIF_RXFreq), False)
+            session.SetFieldText(AdifTags.ADIF_TXFreq, getFieldTextValue(AdifTags.ADIF_TXFreq), False)
             session.SetFieldText(AdifTags.ADIF_Band, getFieldTextValue(AdifTags.ADIF_Band))
             session.SetFieldText(AdifTags.ADIF_SentSerial, getFieldTextValue(AdifTags.ADIF_SentSerial))
             session.SetFieldText(AdifTags.ADIF_Call, callSign)

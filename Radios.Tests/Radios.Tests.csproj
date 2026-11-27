@@ -47,6 +47,10 @@
          queued behind two seconds of TX narration. The queue-depth rule MUST
          flag it — a pass on that file means the instrument is broken. -->
     <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The country file the logger's forms load from the base directory, so
+         LogDupWarningTests can build a real DefaultLog field set (repair round 3
+         of junk box batch 31), as JJFlexWpf.Tests carries it for its own. -->
+    <None Include="..\cty_wt.dat" Link="cty_wt.dat" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- A run that discovers no tests is a failure, never a pass. Without this an
