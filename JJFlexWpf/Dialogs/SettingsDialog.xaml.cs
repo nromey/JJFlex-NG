@@ -108,12 +108,17 @@ namespace JJFlexWpf.Dialogs
         private readonly IReadOnlyList<TuningSteps.Choice> _fineStepOptions;
 
         /// <summary>
-        /// The licence class list's position when the dialog opened (#1309,
-        /// folding in #1281): OK writes the class only when the list was moved
-        /// off it, so an untouched License tab never rewrites a stored class.
+        /// The licence class list's position as last committed (#1309, folding
+        /// in #1281): its position when the dialog opened, then wherever Apply
+        /// or OK last wrote the class into the licence settings. A commit writes
+        /// the class only when the list was moved off it, so an untouched License
+        /// tab never rewrites a stored class, and a second commit after Apply is
+        /// judged against what Apply wrote (repair round 1 of junk box batch 31:
+        /// it was judged against the opening position, so Novice, Extra and
+        /// Apply, then Novice and OK, kept Extra under a list showing Novice).
         /// -1 when nothing was selected.
         /// </summary>
-        private int _licenseClassIndexAtOpen = -1;
+        private int _licenseClassIndexCommitted = -1;
 
         private static readonly string[] MeterPresetOptions =
         {
@@ -348,7 +353,7 @@ namespace JJFlexWpf.Dialogs
                 if (LicenseConfig.OfferedClasses[i] == shownClass) { licIdx = i; break; }
             }
             LicenseClassCombo.SelectedIndex = licIdx;
-            _licenseClassIndexAtOpen = licIdx;
+            _licenseClassIndexCommitted = licIdx;
 
             BandBoundaryCheckbox.IsChecked = _licenseConfig.BoundaryNotifications;
             TxLockoutCheckbox.IsChecked = _licenseConfig.TxLockout;
@@ -1714,9 +1719,10 @@ namespace JJFlexWpf.Dialogs
             // the operator moved the list (#1309, #1281): an untouched tab
             // leaves the stored class exactly as it was, a held Novice or a
             // stored "none" included.
+            // The baseline advances with each write (repair round 1), so a second
+            // commit after Apply is judged against what Apply wrote.
             int selIdx = LicenseClassCombo.SelectedIndex;
-            if (LicenseConfig.ClassChosenInList(selIdx, _licenseClassIndexAtOpen) is { } chosenClass)
-                _licenseConfig.LicenseClass = chosenClass;
+            _licenseClassIndexCommitted = LicenseConfig.CommitClassFromList(_licenseConfig, selIdx, _licenseClassIndexCommitted);
             _licenseConfig.BoundaryNotifications = BandBoundaryCheckbox.IsChecked == true;
             _licenseConfig.TxLockout = TxLockoutCheckbox.IsChecked == true;
             // #1306: into the audio settings, made live by _audioConfig.Apply()

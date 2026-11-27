@@ -98,5 +98,63 @@ namespace Radios.Tests
             Assert.False(TransmitBandLockout.Allows(14_250_000, "USB", 100, 2800, Bands.Licenses.none),
                 "positive control: none itself is on no division, which is why it is judged as Extra");
         }
+
+        // ---- repair round 1: each Apply is the baseline for the next commit ----
+
+        private const int ExtraAt = 0, NoviceAt = 4;
+
+        /// <summary>
+        /// One Settings session: the licence loaded at open, then each commit
+        /// (Apply, or the final OK) of the list's position through the seam
+        /// SaveSettings calls, <see cref="LicenseConfig.CommitClassFromList"/>,
+        /// with the file saved after each, as MainWindow.ApplySettingsChanges
+        /// does. Null is the list left where it is.
+        /// </summary>
+        private LicenseConfig Session(params int?[] commits)
+        {
+            var config = LicenseConfig.Load(_dir, Op);
+            int committed = LicenseConfig.OfferedClasses.ToList().IndexOf(LicenseConfig.ShownClass(config.LicenseClass));
+            int shown = committed;
+            foreach (var at in commits)
+            {
+                if (at is { } moved) shown = moved;
+                committed = LicenseConfig.CommitClassFromList(config, shown, committed);
+                config.Save(_dir, Op);
+            }
+            return LicenseConfig.Load(_dir, Op);
+        }
+
+        [Fact]
+        public void Novice_then_Extra_and_Apply_then_Novice_again_keeps_Novice_under_OK_and_under_Apply()
+        {
+            Assert.Equal(Bands.Licenses.extra, LicenseConfig.OfferedClasses[ExtraAt]);
+            Assert.Equal(Bands.Licenses.novice, LicenseConfig.OfferedClasses[NoviceAt]);
+            WriteFile("novice");
+            Assert.Equal(Bands.Licenses.novice, Session(ExtraAt, NoviceAt).LicenseClass);          // Apply, then OK
+            WriteFile("novice");
+            Assert.Equal(Bands.Licenses.novice, Session(ExtraAt, NoviceAt, null).LicenseClass);    // Apply, Apply, OK
+            WriteFile("novice");
+            Assert.Equal(Bands.Licenses.extra, Session(ExtraAt, null).LicenseClass);               // positive control
+        }
+
+        [Fact]
+        public void Extra_then_Novice_and_Apply_then_Extra_again_keeps_Extra_under_OK_and_under_Apply()
+        {
+            WriteFile("extra");
+            Assert.Equal(Bands.Licenses.extra, Session(NoviceAt, ExtraAt).LicenseClass);
+            WriteFile("extra");
+            Assert.Equal(Bands.Licenses.extra, Session(NoviceAt, ExtraAt, null).LicenseClass);
+            WriteFile("extra");
+            Assert.Equal(Bands.Licenses.novice, Session(NoviceAt, null).LicenseClass);             // positive control
+        }
+
+        [Fact]
+        public void An_untouched_stored_none_stays_none_through_any_number_of_commits()
+        {
+            WriteFile("none");
+            Assert.Equal(Bands.Licenses.none, Session(null, null, null).LicenseClass);
+            WriteFile("none");
+            Assert.Equal(Bands.Licenses.none, Session(ExtraAt).LicenseClass);    // set to where it already shows: still untouched
+        }
     }
 }

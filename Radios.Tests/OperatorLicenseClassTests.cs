@@ -203,9 +203,14 @@ namespace Radios.Tests
         public void Settings_OK_writes_the_class_only_when_the_list_was_moved()
         {
             string settings = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.xaml.cs")).Replace("\r\n", "\n");
-            Assert.Contains("_licenseClassIndexAtOpen = licIdx;", settings, StringComparison.Ordinal);
-            Assert.Contains("if (LicenseConfig.ClassChosenInList(selIdx, _licenseClassIndexAtOpen) is { } chosenClass)\n                _licenseConfig.LicenseClass = chosenClass;", settings, StringComparison.Ordinal);
-            Assert.Equal(1, Occurrences(settings, "_licenseConfig.LicenseClass = "));
+            // Repair round 1: these two lines pinned the bug, a baseline captured at
+            // open and never advanced. The commit now goes through the pure
+            // CommitClassFromList, whose returned position is the next baseline
+            // (behaviour in NoviceHeldClassTests), and nothing else writes the class.
+            Assert.Contains("_licenseClassIndexCommitted = licIdx;", settings, StringComparison.Ordinal);
+            Assert.Contains("_licenseClassIndexCommitted = LicenseConfig.CommitClassFromList(_licenseConfig, selIdx, _licenseClassIndexCommitted);", settings, StringComparison.Ordinal);
+            Assert.DoesNotContain("_licenseClassIndexAtOpen", settings, StringComparison.Ordinal);
+            Assert.Equal(0, Occurrences(settings, "_licenseConfig.LicenseClass = "));
         }
 
         // ---------------- where the app saves it, by source ----------------

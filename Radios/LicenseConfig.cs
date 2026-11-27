@@ -171,6 +171,28 @@ namespace Radios
             return OfferedClasses[position];
         }
 
+        /// <summary>
+        /// One commit of a list of <see cref="OfferedClasses"/> into
+        /// <paramref name="license"/> (Settings' OK or Apply): writes the class
+        /// only when the list was moved off <paramref name="committedPosition"/>
+        /// (<see cref="ClassChosenInList"/>), and returns the position the NEXT
+        /// commit is judged against: this one when it wrote, else the old one.
+        /// </summary>
+        /// <remarks>
+        /// Repair round 1 of junk box batch 31 (Codex's #1309 blocker): the
+        /// baseline was the position at open, forever, so after an Apply a move
+        /// back to the opening class wrote nothing and the class Apply wrote
+        /// stayed, under a list showing the other one. An untouched stored
+        /// <c>none</c> still stays untouched through any number of commits.
+        /// </remarks>
+        public static int CommitClassFromList(LicenseConfig license, int position, int committedPosition)
+        {
+            if (license == null) throw new ArgumentNullException(nameof(license));
+            if (ClassChosenInList(position, committedPosition) is not { } chosen) return committedPosition;
+            license.LicenseClass = chosen;
+            return position;
+        }
+
         /// <summary>What <see cref="SaveClass"/> did.</summary>
         public enum ClassSave
         {
