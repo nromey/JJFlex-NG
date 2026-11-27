@@ -3219,6 +3219,14 @@ namespace Radios.Tests
                 "audio.clarity_suggest.kept",
                 "audio.clarity_suggest.kept_switched_on",
                 "audio.clarity_suggest.next_step",
+                // Sprint 49 Clarity, 2026-11-26 (#736): the suggest pass's solve says what its
+                // brightness offer is expected to lift, and the singular decibel. DRAFT PROSE, for Codex.
+                "audio.unit.decibel",
+                "audio.clarity_suggest.brightness.cannot_lift",
+                "audio.clarity_suggest.brightness.expect",
+                "audio.clarity_suggest.brightness.expect_most",
+                "audio.clarity_suggest.brightness.expect_guard",
+                "audio.clarity_suggest.fullness.cannot_lift",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

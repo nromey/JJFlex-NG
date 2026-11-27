@@ -398,7 +398,8 @@ namespace JJFlexWpf
         internal static string Decibels(double db)
         {
             string n = N(Math.Max(0.0, Math.Round(db, 1)));
-            return n + " " + Lexicon.Get(n == "1" ? "audio.unit.decibel" : "audio.unit.decibels");
+            bool one = n == "1";
+            return n + " " + Lexicon.Get(one ? "audio.unit.decibel" : "audio.unit.decibels");
         }
 
         /// <summary>
