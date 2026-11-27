@@ -859,6 +859,12 @@ namespace Radios.Speech
         /// <summary>The receive parametric equaliser (Sprint 49 Track I, #1240, ruled S2). The transmit twin is <see cref="TransmitEqualizer"/>; the newest covers an unheard older one.</summary>
         public const string ReceiveEqualizer = "receive-equalizer";
 
+        /// <summary>The RADIO's own transmit graphic equaliser from the noise layer's Ctrl+E (Sprint 49 noise keys, #490 ruled 2026-11-26): on or off, a band and its level, the fixed-bands answer, not reported yet. Never our parametric equaliser, which is <see cref="TransmitEqualizer"/>. The receive twin is <see cref="ReceiveRadioEqualizer"/>; the newest covers an unheard older one.</summary>
+        public const string TransmitRadioEqualizer = "transmit-radio-equalizer";
+
+        /// <summary>The RADIO's own receive graphic equaliser from the noise layer's Ctrl+E (Sprint 49 noise keys). The transmit twin is <see cref="TransmitRadioEqualizer"/>; the newest covers an unheard older one.</summary>
+        public const string ReceiveRadioEqualizer = "receive-radio-equalizer";
+
         /// <summary>A preset applied from a transmit road, a transmit-only preset saved, or no transmit presets (Track H2 repair round 1). The receive twin is <see cref="NoisePreset"/>; the newest covers an unheard older one.</summary>
         public const string TransmitNoisePreset = "transmit-noise-preset";
 

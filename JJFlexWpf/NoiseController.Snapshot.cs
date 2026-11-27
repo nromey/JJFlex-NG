@@ -134,6 +134,23 @@ namespace JJFlexWpf
         internal ParametricEqSetup? ReceiveEq { get; set; }
         internal ParametricEqSetup? LeftReceiveEq { get; set; }
         internal ParametricEqSetup? EntryReceiveEq { get; set; }
+
+        // ── Sprint 49 noise keys (brief item 4): the keys added on 2026-11-26's
+        //    rulings, under the same three-part rule. The radio's own graphic
+        //    equaliser, each side on its own (Ctrl+E, #490); and the setting that
+        //    turns the radio's speech processor off while our compressor is on
+        //    (Ctrl+P, #1278). The compressor (Ctrl+K) and the limiter (Ctrl+L)
+        //    need nothing new here: their switches and levers already go through
+        //    the layer's transmit ownership (TransmitCompressor, TransmitLimiter). ──
+
+        /// <summary>The radio the equaliser curves below were read from; null until one was.</summary>
+        internal string? RadioEqSerial { get; set; }
+        internal Dictionary<DenoiseDirection, FlexBase.EqSettings> RadioEqTarget { get; } = new();
+        internal Dictionary<DenoiseDirection, FlexBase.EqSettings> LeftRadioEq { get; } = new();
+        internal Dictionary<DenoiseDirection, FlexBase.EqSettings> EntryRadioEq { get; } = new();
+        internal bool? HandoffTarget { get; set; }
+        internal bool? LeftHandoff { get; set; }
+        internal bool? EntryHandoff { get; set; }
     }
 
     /// <summary>The transmit stages after the gate as one picture: the equaliser, the de-esser and the stage order (Sprint 49 Track I).</summary>
@@ -201,7 +218,38 @@ namespace JJFlexWpf
                 snap.TransmitLimiter = stages.Limiter.Clone(); snap.EntryTransmitLimiter = stages.Limiter.Clone();
                 snap.TransmitClarity = stages.Clarity.Clone(); snap.EntryTransmitClarity = stages.Clarity.Clone();
             }
+            // Sprint 49 noise keys: the radio's equaliser curves and the handoff setting.
+            TakeRadioEqPicture(snap);
+            snap.HandoffTarget = snap.EntryHandoff = ProcessorHandoffSetting;
             return snap;
+        }
+
+        /// <summary>
+        /// The layer switched the handoff setting (Ctrl+P): it is the layer's now,
+        /// as it left it. If the setting had moved since the layer last left it
+        /// (or since the picture), somebody else moved it, and that becomes what
+        /// Escape puts it back to (<see cref="NoteLayerLeft"/>'s rule; the
+        /// editor's <c>NoteHandoff</c> is the same rule for its own Cancel).
+        /// </summary>
+        private static void NoteLayerLeftHandoff(NoiseSnapshot snap, bool was, bool now)
+        {
+            if (was == now) return;
+            if ((snap.LeftHandoff ?? snap.HandoffTarget) != was) snap.HandoffTarget = was;
+            snap.LeftHandoff = now;
+        }
+
+        /// <summary>Whether Escape puts the handoff setting back: the layer changed it, it still reads as the layer left it, and that is not its target.</summary>
+        private bool LayerOwnsHandoff(NoiseSnapshot snap) =>
+            snap.LeftHandoff is bool left && snap.HandoffTarget is bool target && left != target && ProcessorHandoffSetting == left;
+
+        /// <summary>Put the handoff setting back if it is still the layer's when this runs (asked again when a held put-back runs). True when it went back.</summary>
+        private bool HandoffBack(NoiseSnapshot snap, string source)
+        {
+            if (!LayerOwnsHandoff(snap)) return false;
+            bool left = snap.LeftHandoff!.Value, target = snap.HandoffTarget!.Value;
+            WriteProcessorHandoffSetting(target);
+            NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "processor-handoff", "", Words(left), Words(target));
+            return true;
         }
 
         /// <summary>
@@ -709,6 +757,12 @@ namespace JJFlexWpf
                     snap.RadioSwitches.Any(kv => IsOn(kv.Key) != kv.Value)
                     || snap.RadioLevels.Any(kv => ReadRadioLevel(_catalog.Find(kv.Key)!) is int now && now != kv.Value);
             }
+            // Sprint 49 noise keys: the radio's own equaliser, each side on its
+            // own. Radio-wide, not the slice's, so not tied to the picture's
+            // slice; tied to the picture's radio instead. Written now, keyed or
+            // not, as every write to it is (it is the radio's stage, not the
+            // computer's transmit chain).
+            changed |= RestoreRadioEq(snap, source);
             // Memory first, so a model the mode's rule swaps while the slots
             // are put back is owed back on leaving CW (B4) and not undone.
             if (_config() is { } c)
@@ -769,6 +823,14 @@ namespace JJFlexWpf
             // through one change held while keyed (repair round 1, item 4), which
             // asks again when it runs. A part someone else changed is kept.
             LastRestoreTiming = TxChangeTiming.Now;
+            // Sprint 49 noise keys: the handoff setting (Ctrl+P). It goes back
+            // with the transmit stages, held for the unkey while keyed exactly as
+            // the compressor editor's Cancel holds it, and asked again when it
+            // runs; a change made elsewhere since the layer's is kept.
+            bool handoffOwned = LayerOwnsHandoff(snap);
+            bool handoffStanding = handoffOwned ? snap.HandoffTarget!.Value : ProcessorHandoffSetting;
+            if (snap.EntryHandoff is bool handoffEntry && handoffStanding != handoffEntry) LastRestoreKeptOutsideChanges = true;
+            if (handoffOwned && _txChain() is null) changed |= HandoffBack(snap, source);
             if (_txChain() is { } chain)
             {
                 if (chain.CancelHeld(snap) > 0)
@@ -835,8 +897,16 @@ namespace JJFlexWpf
                                 still.Order && orderBack != null ? orderBack : current.Stages.Order,
                                 still.Gate ? gateBack : null);
                         else if (still.Gate && gateBack != null) TransmitGate.ApplyNow(gateBack);
+                        // The handoff setting goes back in the same change (noise keys).
+                        HandoffBack(snap, source);
                     }, s => ShapingBack(LayerOwnedShaping(snap, s.Compressor, s.Limiter, s.Clarity), s)).Timing;
                     NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "transmit", "", "layer changes", "put back");
+                    changed = true;
+                }
+                else if (handoffOwned)
+                {
+                    // Only the handoff setting is the layer's: one change of its own, held while keyed like the rest.
+                    LastRestoreTiming = TxAudioConditioning.Ask(chain, lever: false, () => HandoffBack(snap, source), null).Timing;
                     changed = true;
                 }
             }

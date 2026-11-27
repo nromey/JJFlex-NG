@@ -38,6 +38,31 @@ internal sealed class NoiseFixture : IDisposable
         public string? CapabilityRefusal(RadioCapability c) => Refused.TryGetValue(c, out var why) ? why : null;
         public bool CapabilityClosed(RadioCapability c) => Refused.ContainsKey(c);
         public bool ClosedByHardware(RadioCapability c) => Refused.TryGetValue(c, out var why) && why.Contains("model");
+
+        // Sprint 49 noise keys: the radio's own graphic equaliser. A side with
+        // no entry has not been reported. With LagEqWrites a write is queued,
+        // as the rig's command queue queues it, and lands only at FlushEq.
+        public Dictionary<DenoiseDirection, FlexBase.EqSettings> RadioEq { get; } = new();
+        public List<string> EqWrites { get; } = new();
+        public List<DenoiseDirection> EqRequests { get; } = new();
+        public bool LagEqWrites { get; set; }
+        private readonly List<(DenoiseDirection Side, FlexBase.EqSettings Eq)> _queuedEq = new();
+        public FlexBase.EqSettings? ReadRadioEqualizer(DenoiseDirection side) => RadioEq.TryGetValue(side, out var eq) ? Copy(eq) : null;
+        public bool WriteRadioEqualizer(DenoiseDirection side, FlexBase.EqSettings eq)
+        {
+            if (!RadioEq.ContainsKey(side)) return false;
+            EqWrites.Add(side + ":" + (eq.Enabled ? "on" : "off") + ":" + string.Join(",", Enumerable.Range(0, 9).Select(i => FlexBase.GetEqBand(eq, i))));
+            if (LagEqWrites) _queuedEq.Add((side, Copy(eq))); else RadioEq[side] = Copy(eq);
+            return true;
+        }
+        public void RequestRadioEqualizer(DenoiseDirection side) => EqRequests.Add(side);
+        public void FlushEq() { foreach (var (side, eq) in _queuedEq) RadioEq[side] = eq; _queuedEq.Clear(); }
+        public static FlexBase.EqSettings Copy(FlexBase.EqSettings from)
+        {
+            var to = new FlexBase.TxEqSettings { Enabled = from.Enabled };
+            for (int i = 0; i < 9; i++) FlexBase.SetEqBand(to, i, FlexBase.GetEqBand(from, i));
+            return to;
+        }
     }
 
     internal sealed class Speaker : INoiseSpeaker

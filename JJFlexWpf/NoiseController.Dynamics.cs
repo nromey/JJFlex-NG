@@ -375,6 +375,8 @@ namespace JJFlexWpf
             if (was != on) NoiseSettingsJournal.Record(NoiseJournalKind.Switch, TxSource(source), "processor-handoff", "", Words(was), Words(on));
             // The open editor's own change, for its Cancel (repair 3): only what it changed goes back.
             if (_editor is { } editor && source == editor.Source) editor.NoteHandoff(was, on);
+            // The noise layer's own change (Ctrl+P, Sprint 49 noise keys), for its Escape.
+            if (source == LayerSource && _live is { } snap) NoteLayerLeftHandoff(snap, was, on);
             Say(L(on ? "audio.processor_handoff.setting_on" : "audio.processor_handoff.setting_off"), SpeechSubject.ProcessorHandoff);
         }
 

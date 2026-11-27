@@ -3219,6 +3219,22 @@ namespace Radios.Tests
                 "audio.clarity_suggest.kept",
                 "audio.clarity_suggest.kept_switched_on",
                 "audio.clarity_suggest.next_step",
+                // Sprint 49 noise keys (#490, #1252, #1278; ruled 2026-11-26): the radio's
+                // own equaliser on Ctrl+E, the transmit-only answers of Ctrl+K, Ctrl+L,
+                // Ctrl+P and Shift+Alt+L, and the noise layer's new key list lines.
+                // All DRAFT PROSE, for Codex.
+                "audio.radio_eq.on",
+                "audio.radio_eq.off",
+                "audio.radio_eq.fixed_bands",
+                "audio.noise_layer.compressor_transmit_only",
+                "audio.noise_layer.limiter_transmit_only",
+                "audio.noise_layer.handoff_transmit_only",
+                "audio.noise_layer.learn_room_transmit_only",
+                "audio.noise_layer.row.radio_eq",
+                "audio.noise_layer.row.compressor",
+                "audio.noise_layer.row.limiter",
+                "audio.noise_layer.row.handoff",
+                "audio.noise_layer.row.learn_room",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

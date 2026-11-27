@@ -31,6 +31,17 @@ namespace JJFlexWpf
     /// Captured noise's Ctrl+S do nothing and say so (part seven).
     /// </para>
     /// <para>
+    /// <b>The stage keys ruled 2026-11-26</b> (Sprint 49 noise keys): Ctrl+E
+    /// is the radio's own graphic equaliser and Ctrl+Shift+E our parametric
+    /// one, each in the layer's direction (#490); Ctrl+K our compressor,
+    /// Ctrl+L our limiter and Ctrl+P the speech processor handoff setting,
+    /// transmit only (#1278); Shift+Alt+L Learn the room, transmit only
+    /// (#1252). A transmit-only key facing receive changes nothing and says
+    /// so, as the de-esser's Ctrl+Y always has. Every one of them goes
+    /// through the controller road the Transmit menu and Home take, and the
+    /// layer's Escape puts back what each changed.
+    /// </para>
+    /// <para>
     /// Ctrl+B and Ctrl+W stay unbound in both directions: the computer
     /// blankers they were proposed for were dropped (#1027), so they are
     /// refused like any unknown key.
@@ -62,13 +73,42 @@ namespace JJFlexWpf
         //    Ctrl and a letter switches a computer stage, as Ctrl and a letter
         //    switches a computer engine here. ──
 
-        /// <summary>The parametric equaliser on or off, in the layer's direction (proposed: E for equaliser).</summary>
-        public const Keys EqualizerKey = Keys.E | Keys.Control;
+        /// <summary>
+        /// OUR parametric equaliser on or off, in the layer's direction. RULED
+        /// by Noel 2026-11-26 13:07 (#490): Ctrl+Shift+E, "the more advanced
+        /// one", because the radio's own equaliser, the one most operators reach
+        /// for, takes the plain Ctrl+E (<see cref="RadioEqualizerKey"/>). Track I
+        /// had proposed Ctrl+E for this one.
+        /// </summary>
+        public const Keys EqualizerKey = Keys.E | Keys.Control | Keys.Shift;
+
+        /// <summary>
+        /// The RADIO's own nine-band graphic equaliser on or off, in the layer's
+        /// direction, which also puts the arrows, Tab and Space on its bands
+        /// (fixed: no add, no delete). Ruled with <see cref="EqualizerKey"/>.
+        /// </summary>
+        public const Keys RadioEqualizerKey = Keys.E | Keys.Control;
 
         /// <summary>The de-esser on or off, transmit (proposed: Y, the free letter nearest "sibilance"; S and D are taken).</summary>
         public const Keys DeEsserKey = Keys.Y | Keys.Control;
 
-        /// <summary>The equaliser's previous and next band, which also puts the arrows, Tab and Space on the equaliser.</summary>
+        // ── Sprint 49 noise keys: RULED by Noel 2026-11-26 (#1278, question 13:
+        //    "yes to all three keys"), transmit direction. In the receive
+        //    direction each changes nothing and says so, as the de-esser does. ──
+
+        /// <summary>Our compressor on or off (transmit), which also puts the arrows, Tab and Space on its settings.</summary>
+        public const Keys CompressorKey = Keys.K | Keys.Control;
+
+        /// <summary>Our limiter on or off (transmit), which also puts the arrows, Tab and Space on its settings.</summary>
+        public const Keys LimiterKey = Keys.L | Keys.Control;
+
+        /// <summary>The setting "turn the radio's speech processor off while the compressor is on" (transmit).</summary>
+        public const Keys ProcessorHandoffKey = Keys.P | Keys.Control;
+
+        /// <summary>Learn the room (#1252; RULED by Noel 2026-11-26, question 12: a sixth Shift+Alt command). Transmit; in receive it says so.</summary>
+        public const Keys LearnRoomKey = Keys.L | Keys.Shift | Keys.Alt;
+
+        /// <summary>The equaliser's previous and next band, which also puts the arrows, Tab and Space on the equaliser: the radio's, while it is the one under the arrows, otherwise ours.</summary>
         public const Keys PreviousBandKey = Keys.Left, NextBandKey = Keys.Right;
 
         /// <summary>Add a band after the one you are on.</summary>
@@ -77,11 +117,13 @@ namespace JJFlexWpf
         /// <summary>Remove the band you are on.</summary>
         public const Keys RemoveBandKey = Keys.Delete;
 
-        /// <summary>What the arrows, Tab and Space work: the engine last touched (as before), the equaliser, or the de-esser.</summary>
-        private enum StageCursor { Engine, Equalizer, DeEsser }
+        /// <summary>What the arrows, Tab and Space work: the engine last touched (as before), our equaliser, the radio's equaliser, the de-esser, the compressor or the limiter.</summary>
+        private enum StageCursor { Engine, Equalizer, RadioEqualizer, DeEsser, Compressor, Limiter }
 
         private StageCursor _cursor = StageCursor.Engine;
         private int _deEsserLever;
+        private int _radioBand;
+        private string? _compressorLever, _limiterLever;
         private ParametricEqEditorModel? _eqReceive, _eqTransmit;
 
         private ParametricEqEditorModel Eq(bool transmit) =>
@@ -114,7 +156,7 @@ namespace JJFlexWpf
         /// <summary>The Shift+Alt chords this layer takes. Every other Alt chord passes through.</summary>
         public static readonly IReadOnlyList<Keys> ShiftAltChords = new[]
         {
-            LegacyAutoNotchKey, FavouriteKey, DefaultsKey, NextPresetKey, PreviousPresetKey,
+            LegacyAutoNotchKey, FavouriteKey, DefaultsKey, NextPresetKey, PreviousPresetKey, LearnRoomKey,
         };
 
         private const string Source = NoiseController.LayerSource; // what makes a change the layer's own, for its Escape
@@ -170,14 +212,21 @@ namespace JJFlexWpf
                 case DefaultsKey: WithCurrent(id2 => { if (transmit) _noise.TransmitReturnToDefaults(id2, Source); else _noise.ReturnToDefaults(id2, Source); }); return true;
                 case NextPresetKey: if (transmit) _noise.StepTransmitPreset(+1, Source); else _noise.StepPreset(+1, Source); return true;
                 case PreviousPresetKey: if (transmit) _noise.StepTransmitPreset(-1, Source); else _noise.StepPreset(-1, Source); return true;
+                // Learn the room (#1252), through the one road the Home button
+                // and the Transmit menu take. A transmit-chain action: in the
+                // receive direction it changes nothing and says so, as the
+                // de-esser's key does there.
+                case LearnRoomKey: if (transmit) _noise.LearnTheRoom(Source); else _noise.SayLearnRoomTransmitOnly(); return true;
             }
             return false;
         }
 
         /// <summary>
-        /// The equaliser's and the de-esser's keys (Sprint 49 Track I), and the
-        /// arrows, Tab and Space while one of them is what the layer last
-        /// touched. True when handled.
+        /// The stage keys: our equaliser and the de-esser (Sprint 49 Track I);
+        /// the radio's equaliser, the compressor, the limiter and the handoff
+        /// setting (Sprint 49 noise keys); and the arrows, Tab and Space while
+        /// one of those stages is what the layer last put them on. True when
+        /// handled.
         /// </summary>
         private bool HandleStage(Keys k, bool transmit)
         {
@@ -193,6 +242,18 @@ namespace JJFlexWpf
                     _cursor = StageCursor.Equalizer;
                     return true;
                 }
+                case RadioEqualizerKey:
+                {
+                    // On or off; then the arrows work its bands. Not reported yet,
+                    // or no radio: said, and the arrows still go to it, so they
+                    // find it once the radio answers.
+                    bool? before = _noise.RadioEqualizerOn(side);
+                    _noise.ToggleRadioEqualizer(side, Source);
+                    bool? after = _noise.RadioEqualizerOn(side);
+                    if (before is bool b && after is bool a && a != b) _tone?.Invoke(a);
+                    _cursor = StageCursor.RadioEqualizer;
+                    return true;
+                }
                 case DeEsserKey:
                 {
                     if (!transmit) { _noise.SayDeEsserTransmitOnly(); return true; }
@@ -203,6 +264,57 @@ namespace JJFlexWpf
                     _cursor = StageCursor.DeEsser;
                     return true;
                 }
+                case CompressorKey:
+                {
+                    if (!transmit) { _noise.SayCompressorTransmitOnly(); return true; }
+                    // The Transmit menu's and Home's own road: held for the unkey
+                    // while keyed, said with its timing, owned by the layer for Escape.
+                    bool before = _noise.CompressorOn;
+                    _noise.ToggleCompressor(Source);
+                    bool after = _noise.CompressorOn;
+                    if (after != before) _tone?.Invoke(after);
+                    _cursor = StageCursor.Compressor;
+                    return true;
+                }
+                case LimiterKey:
+                {
+                    if (!transmit) { _noise.SayLimiterTransmitOnly(); return true; }
+                    bool before = _noise.LimiterOn;
+                    _noise.ToggleLimiter(Source);
+                    bool after = _noise.LimiterOn;
+                    if (after != before) _tone?.Invoke(after);
+                    _cursor = StageCursor.Limiter;
+                    return true;
+                }
+                case ProcessorHandoffKey:
+                {
+                    // A setting, not a stage: the arrows stay where they were.
+                    if (!transmit) { _noise.SayProcessorHandoffTransmitOnly(); return true; }
+                    bool before = _noise.ProcessorHandoffSetting;
+                    _noise.SetProcessorHandoffSetting(!before, Source);
+                    bool after = _noise.ProcessorHandoffSetting;
+                    if (after != before) _tone?.Invoke(after);
+                    return true;
+                }
+            }
+            // The radio's equaliser under the arrows: Left and Right walk its
+            // bands, Up and Down move the band, Tab and Shift+Tab walk the bands
+            // too (each band has one setting), Space says the band, and the
+            // add and remove keys say its bands are fixed.
+            if (_cursor == StageCursor.RadioEqualizer)
+            {
+                switch (k)
+                {
+                    case PreviousBandKey: case Keys.Tab | Keys.Shift: _radioBand = _noise.StepRadioEqualizerBand(side, _radioBand, -1); return true;
+                    case NextBandKey: case Keys.Tab: _radioBand = _noise.StepRadioEqualizerBand(side, _radioBand, +1); return true;
+                    case Keys.Up: _noise.AdjustRadioEqualizerBand(side, _radioBand, +1, Source); return true;
+                    case Keys.Down: _noise.AdjustRadioEqualizerBand(side, _radioBand, -1, Source); return true;
+                    case Keys.Space: _noise.SayRadioEqualizerBand(side, _radioBand); return true;
+                    case AddBandKey: case RemoveBandKey: _noise.SayRadioEqualizerFixedBands(side); return true;
+                }
+            }
+            switch (k)
+            {
                 case PreviousBandKey: _cursor = StageCursor.Equalizer; _noise.SayInLayer(Eq(transmit).SelectBand(-1), side); return true;
                 case NextBandKey: _cursor = StageCursor.Equalizer; _noise.SayInLayer(Eq(transmit).SelectBand(+1), side); return true;
                 case AddBandKey: _cursor = StageCursor.Equalizer; _noise.SayInLayer(Eq(transmit).AddBand(), side); return true;
@@ -231,7 +343,37 @@ namespace JJFlexWpf
                     case Keys.Tab | Keys.Shift: _deEsserLever = (_deEsserLever + levers.Length - 1) % levers.Length; _noise.SayDeEsserLever(levers[_deEsserLever]); return true;
                 }
             }
+            if (_cursor == StageCursor.Compressor && transmit) return HandleDynamics(k, compressor: true);
+            if (_cursor == StageCursor.Limiter && transmit) return HandleDynamics(k, compressor: false);
             return false;
+        }
+
+        /// <summary>
+        /// The compressor's or the limiter's settings under the arrows, as the
+        /// de-esser's are: Up and Down step the setting you are on, Tab and
+        /// Shift+Tab move between its settings and say the one you reach, and
+        /// Space says the one you are on. The compressor's split-band settings
+        /// are in the list only while it is in split-band mode; the setting you
+        /// are on is kept by name, so a mode change does not move you.
+        /// </summary>
+        private bool HandleDynamics(Keys k, bool compressor)
+        {
+            var levers = compressor
+                ? Array.FindAll(NoiseController.CompressorLevers, l => !l.SplitBandOnly || _noise.CompressorSplitBand)
+                : NoiseController.LimiterLevers;
+            string? current = compressor ? _compressorLever : _limiterLever;
+            int i = Math.Max(0, Array.FindIndex(levers, l => l.Key == current));
+            switch (k)
+            {
+                case Keys.Up: _noise.AdjustDynamics(levers[i], +1, Source); break;
+                case Keys.Down: _noise.AdjustDynamics(levers[i], -1, Source); break;
+                case Keys.Tab: i = (i + 1) % levers.Length; _noise.SayDynamicsLever(levers[i]); break;
+                case Keys.Tab | Keys.Shift: i = (i + levers.Length - 1) % levers.Length; _noise.SayDynamicsLever(levers[i]); break;
+                case Keys.Space: _noise.SayDynamicsLever(levers[i]); break;
+                default: return false;
+            }
+            if (compressor) _compressorLever = levers[i].Key; else _limiterLever = levers[i].Key;
+            return true;
         }
 
         private void WithCurrent(Action<string> act)

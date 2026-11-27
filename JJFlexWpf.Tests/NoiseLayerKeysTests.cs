@@ -52,12 +52,15 @@ public sealed class NoiseLayerKeysTests
     }
 
     [Fact]
-    public void The_Shift_Alt_chords_are_exactly_the_ruled_five_and_none_is_bound_anywhere_else_in_the_layer()
+    public void The_Shift_Alt_chords_are_exactly_the_ruled_six_and_none_is_bound_anywhere_else_in_the_layer()
     {
+        // The 7 November five, and Learn the room (Shift+Alt+L), ruled the sixth
+        // by Noel 2026-11-26 (question 12; #1252).
         Assert.Equal(new[]
         {
             Keys.A | Keys.Shift | Keys.Alt, Keys.F | Keys.Shift | Keys.Alt, Keys.R | Keys.Shift | Keys.Alt,
             Keys.OemCloseBrackets | Keys.Shift | Keys.Alt, Keys.OemOpenBrackets | Keys.Shift | Keys.Alt,
+            Keys.L | Keys.Shift | Keys.Alt,
         }, NoiseLayerKeys.ShiftAltChords);
         Assert.All(NoiseLayerKeys.ShiftAltChords, k => Assert.Equal(Keys.Shift | Keys.Alt, k & Keys.Modifiers));
         Assert.DoesNotContain(NoiseLayerKeys.ShiftAltChords, k => (k & Keys.KeyCode) == Keys.F4);

@@ -226,7 +226,8 @@ public sealed class ParametricEqualizerSurfaceTests
     public void Every_new_layer_key_has_an_inventory_row()
     {
         var rows = KeyInventory.LayerCommands(KeyInventory.NoiseLayerContext);
-        foreach (string display in new[] { "Ctrl+E", "Ctrl+Y", "Left / Right", "Insert", "Delete" })
+        // Ctrl+Shift+E is this equaliser's since 2026-11-26 (#490); Ctrl+E is the radio's own.
+        foreach (string display in new[] { "Ctrl+Shift+E", "Ctrl+E", "Ctrl+Y", "Left / Right", "Insert", "Delete" })
             Assert.Contains(rows, r => r.KeyDisplay == display);
     }
 }

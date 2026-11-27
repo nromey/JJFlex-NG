@@ -275,6 +275,17 @@ The other keys work in the current direction:
 - **Escape** restores the layer's engine settings, favourites and transmit gate and closes the layer. The transmit engine and gate settings return when the radio is unkeyed if Escape is pressed during a transmission. Saved presets and transmit noise setups are kept.
 - **H** opens the noise layer's key list. **Shift+/** opens the JJ key explorer at this layer.
 
+DRAFT PROSE: the equaliser and transmit audio keys, ruled 2026-11-26; these lines carry the facts for the final words:
+
+- **Ctrl+E** — DRAFT PROSE: switches the radio's own nine-band graphic equaliser on or off in the layer's direction (receive, or transmit after T), then the arrows work its bands: Left and Right (or Tab and Shift+Tab) move between the nine fixed bands, 32 hertz to 8 kilohertz, Up and Down move the band by one decibel within the radio's 10 decibels either way, and Space says the band. Bands cannot be added or removed. It changes the radio at once, keyed or not, as Home's equaliser buttons do.
+- **Ctrl+Shift+E** — DRAFT PROSE: switches the computer's parametric equaliser on or off in the layer's direction, then Left and Right move between its bands, Tab and Shift+Tab between a band's fields, Up and Down change the field, Space says the band, and Delete removes the band. It was Ctrl+E until the radio's own equaliser took that key.
+- **Ctrl+K** — DRAFT PROSE: transmit only: switches the computer's compressor on or off, then Up and Down change the setting you are on, Tab and Shift+Tab move between its settings (the split-band ones only in split-band mode), and Space says the setting. Asked for while transmitting, the switch waits for the unkey. In receive it changes nothing and says so.
+- **Ctrl+L** — DRAFT PROSE: transmit only: switches the computer's limiter on or off, then the arrows, Tab and Space work its settings as they do the compressor's. Asked for while transmitting, the switch waits for the unkey. In receive it changes nothing and says so.
+- **Ctrl+P** — DRAFT PROSE: transmit only: switches the setting that turns the radio's speech processor off while the computer's compressor is on. In receive it changes nothing and says so.
+- **Shift+Alt+L** — DRAFT PROSE: transmit only: Learn the room, the same as the Learn the room button on Home and in the Transmit menu: stay quiet while the expander measures your room's noise. In receive it measures nothing and says so.
+
+DRAFT PROSE: Escape also puts back what these keys changed while the layer was open: the radio's equaliser on either side, the compressor, the limiter and the speech processor setting, each only while it still reads as the layer left it. A learned room is a measurement and is not put back.
+
 Transmit engine switches, changes that rebuild a transmit engine, named transmit noise setups and a preset's transmit noise section take effect when unkeyed if requested while transmitting. The reply will say when a change is waiting. Noise floor and other continuous adjustments can change live unless an earlier change is already waiting. Read the particular control's help with `Ctrl+F1` for its purpose and range.
 
 The Transmit menu and Home's Transmission section provide the same transmit noise reduction controls. Home also has the noise gate, Listen to cleanup and named transmit noise setups. Show advanced noise gate settings to reach the monitor and setup fields. There is no gate toggle key in the noise layer.

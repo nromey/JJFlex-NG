@@ -130,6 +130,38 @@ namespace JJFlexWpf
             Say(L("audio.noise_surface.tx.deesser_transmit_only"), SpeechSubject.TransmitDeEsser);
         }
 
+        // Sprint 49 noise keys: the layer's other transmit-only keys answer in the
+        // receive direction the way the de-esser's does: they change nothing and
+        // say so, each on its own stage's subject, and say T is the way to transmit.
+
+        /// <summary>The noise layer's compressor key (Ctrl+K) in the receive direction.</summary>
+        public void SayCompressorTransmitOnly()
+        {
+            using var oneUtterance = OneUtterance();
+            Say(L("audio.noise_layer.compressor_transmit_only"), SpeechSubject.TransmitCompressor);
+        }
+
+        /// <summary>The noise layer's limiter key (Ctrl+L) in the receive direction.</summary>
+        public void SayLimiterTransmitOnly()
+        {
+            using var oneUtterance = OneUtterance();
+            Say(L("audio.noise_layer.limiter_transmit_only"), SpeechSubject.TransmitLimiter);
+        }
+
+        /// <summary>The noise layer's speech processor handoff key (Ctrl+P) in the receive direction.</summary>
+        public void SayProcessorHandoffTransmitOnly()
+        {
+            using var oneUtterance = OneUtterance();
+            Say(L("audio.noise_layer.handoff_transmit_only"), SpeechSubject.ProcessorHandoff);
+        }
+
+        /// <summary>The noise layer's Learn the room key (Shift+Alt+L) in the receive direction.</summary>
+        public void SayLearnRoomTransmitOnly()
+        {
+            using var oneUtterance = OneUtterance();
+            Say(L("audio.noise_layer.learn_room_transmit_only"), SpeechSubject.TransmitRoomLearn);
+        }
+
         /// <summary>Say a de-esser lever and its value (the layer's Tab).</summary>
         public void SayDeEsserLever(DeEsserLever lever)
         {

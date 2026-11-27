@@ -48,6 +48,22 @@ namespace JJFlexWpf
         bool CapabilityClosed(RadioCapability capability);
         /// <summary>The short marker for a closed capability: "not on this radio" or "needs subscription".</summary>
         bool ClosedByHardware(RadioCapability capability);
+
+        // ── The radio's own nine-band graphic equaliser (Sprint 49 noise keys,
+        //    #490's ruling of 2026-11-26: Ctrl+E in the noise layer). Through
+        //    the rig's existing wrappers, the ones Home's Transmission and
+        //    Receive equaliser buttons use (EqualizerLauncher); never FlexLib
+        //    directly. Default bodies, so a radio that has none (the tests'
+        //    fakes, a future radio) reads "not reported" and refuses a write. ──
+
+        /// <summary>The radio's equaliser on a side, as a fresh copy; null when the radio has not reported it yet.</summary>
+        FlexBase.EqSettings? ReadRadioEqualizer(DenoiseDirection side) => null;
+
+        /// <summary>Write the radio's equaliser on a side, whole. False (and nothing written) when the radio has not reported it yet.</summary>
+        bool WriteRadioEqualizer(DenoiseDirection side, FlexBase.EqSettings settings) => false;
+
+        /// <summary>Ask the radio for its equaliser on a side, so a later read finds it. Safe to repeat.</summary>
+        void RequestRadioEqualizer(DenoiseDirection side) { }
     }
 
     /// <summary>Per-radio held levels for the levels the radio never reports back (ruled 2026-11-07, question 16): today only NR Filter's, since the Track E follow-up reads Legacy NR, Spectral NR and Legacy Auto-Notch from the radio (#1012, S5, S12).</summary>
@@ -82,5 +98,26 @@ namespace JJFlexWpf
         public string? CapabilityRefusal(RadioCapability capability) => _rig.CapabilityWriteRefusal(capability);
         public bool CapabilityClosed(RadioCapability capability) => _rig.CapabilityIsClosedOnThisRadio(capability);
         public bool ClosedByHardware(RadioCapability capability) => _rig.CapabilityClosedReason(capability) == CapabilityBlock.Hardware;
+
+        public FlexBase.EqSettings? ReadRadioEqualizer(DenoiseDirection side) =>
+            side == DenoiseDirection.Transmit ? _rig.GetTxEq() : _rig.GetRxEq();
+
+        public bool WriteRadioEqualizer(DenoiseDirection side, FlexBase.EqSettings settings) =>
+            side == DenoiseDirection.Transmit
+                ? _rig.ApplyTxEq(CopyEq<FlexBase.TxEqSettings>(settings))
+                : _rig.ApplyRxEq(CopyEq<FlexBase.RxEqSettings>(settings));
+
+        public void RequestRadioEqualizer(DenoiseDirection side)
+        {
+            if (side == DenoiseDirection.Transmit) _rig.RequestTxEqualizer(); else _rig.RequestRxEqualizer();
+        }
+
+        /// <summary>A side-typed copy, so a receive curve can never be handed to the transmit apply (FlexBase's own reason for two types).</summary>
+        private static T CopyEq<T>(FlexBase.EqSettings from) where T : FlexBase.EqSettings, new()
+        {
+            var to = new T { Enabled = from.Enabled };
+            for (int i = 0; i < FlexBase.EqBandHz.Length; i++) FlexBase.SetEqBand(to, i, FlexBase.GetEqBand(from, i));
+            return to;
+        }
     }
 }

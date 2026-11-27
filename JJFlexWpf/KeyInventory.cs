@@ -1194,10 +1194,27 @@ public static class KeyInventory
         // Sprint 49 Track I: the parametric equaliser and the de-esser on the
         // layer. PROPOSED chords, descriptions drafts for Codex. Not "on or
         // off" at the end: that suffix marks the engine rows (NoiseLayerKeysTests).
-        new(NoiseLayerContext, "Noise layer", "Ctrl+E", "Switch the parametric equaliser, and put the arrows on its bands",
+        // Sprint 49 noise keys: RULED by Noel 2026-11-26 13:07 (#490): Ctrl+E is
+        // the RADIO's own graphic equaliser and Ctrl+Shift+E OUR parametric one,
+        // each in the layer's direction. Track I's proposal had the parametric on
+        // Ctrl+E; its row moves to Ctrl+Shift+E with its words unchanged.
+        new(NoiseLayerContext, "Noise layer", "Ctrl+E", Radios.Lexicon.Get("audio.noise_layer.row.radio_eq"),
+            new[] { "equaliser", "equalizer", "eq", "graphic", "radio", "nine", "bands", "tone", "receive", "transmit", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+Shift+E", "Switch the parametric equaliser, and put the arrows on its bands",
             new[] { "equaliser", "equalizer", "eq", "parametric", "bands", "tone", "shape", "computer", "toggle", "switch" }, "Radio", "DSP"),
         new(NoiseLayerContext, "Noise layer", "Ctrl+Y", "Switch the de-esser, transmit only, and put the arrows on its levers",
             new[] { "de-esser", "deesser", "sibilance", "ess", "s sounds", "transmit", "computer", "toggle", "switch" }, "Radio", "DSP"),
+        // Sprint 49 noise keys: RULED by Noel 2026-11-26 (#1278, question 13),
+        // the transmit direction; and Learn the room (#1252, question 12), the
+        // sixth Shift+Alt command. Words are drafts for Codex (lexicon).
+        new(NoiseLayerContext, "Noise layer", "Ctrl+K", Radios.Lexicon.Get("audio.noise_layer.row.compressor"),
+            new[] { "compressor", "compression", "dynamics", "squash", "level", "transmit", "computer", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+L", Radios.Lexicon.Get("audio.noise_layer.row.limiter"),
+            new[] { "limiter", "limit", "ceiling", "peaks", "dynamics", "transmit", "computer", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+P", Radios.Lexicon.Get("audio.noise_layer.row.handoff"),
+            new[] { "speech", "processor", "proc", "handoff", "radio", "compressor", "off", "transmit", "setting", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Shift+Alt+L", Radios.Lexicon.Get("audio.noise_layer.row.learn_room"),
+            new[] { "learn", "room", "measure", "noise", "floor", "expander", "gate", "threshold", "quiet", "transmit" }, "Radio", "DSP"),
         new(NoiseLayerContext, "Noise layer", "Left / Right", "Previous or next equaliser band",
             new[] { "equaliser", "equalizer", "eq", "band", "next", "previous", "left", "right" }, "Radio", "DSP"),
         new(NoiseLayerContext, "Noise layer", "Insert", "Add an equaliser band",
