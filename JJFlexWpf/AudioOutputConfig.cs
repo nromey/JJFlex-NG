@@ -474,6 +474,9 @@ namespace JJFlexWpf
             TransmitElsewhereNotice = root.TransmitElsewhereNotice;
             FilterWidthUnits = root.FilterWidthUnits;   // #979
             RequireCallsignToTransmit = root.RequireCallsignToTransmit;   // #1306
+            // #1339: speech verbosity is the operator's, set in Settings with a
+            // radio or without and by the verbosity key, which saves it to root.
+            SpeechVerbosity = root.SpeechVerbosity;
         }
 
         /// <summary>Per-slot meter tone configurations. LEGACY: retained so old
@@ -873,6 +876,11 @@ namespace JJFlexWpf
             // so it lives only here; missing from this list, Settings' choice
             // made with no radio connected would revert at the next start.
             rootConfig.RequireCallsignToTransmit = chosen.RequireCallsignToTransmit;
+            // #1339: speech verbosity, chosen in Settings with no radio connected,
+            // was applied live and then lost at the next start, although Settings
+            // said it saved. In TakeOperatorChoicesFrom too, or a connect loads the
+            // radio's older copy over it.
+            rootConfig.SpeechVerbosity = chosen.SpeechVerbosity;
             rootConfig.Save(rootConfigDir);
         }
 
