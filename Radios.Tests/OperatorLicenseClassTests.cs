@@ -210,7 +210,24 @@ namespace Radios.Tests
             Assert.Contains("_licenseClassIndexCommitted = licIdx;", settings, StringComparison.Ordinal);
             Assert.Contains("_licenseClassIndexCommitted = LicenseConfig.CommitClassFromList(_licenseConfig, selIdx, _licenseClassIndexCommitted);", settings, StringComparison.Ordinal);
             Assert.DoesNotContain("_licenseClassIndexAtOpen", settings, StringComparison.Ordinal);
-            Assert.Equal(0, Occurrences(settings, "_licenseConfig.LicenseClass = "));
+
+            // Repair round 2: Settings is a partial class over every SettingsDialog*.cs
+            // file, and the class has exactly one writer across all of them: the one
+            // CommitClassFromList call above. A second commit, or any direct write of
+            // LicenseClass, in any partial is refused.
+            string dialogs = Path.Combine(FieldKeyMapScan.RepoRoot(), "JJFlexWpf", "Dialogs");
+            var partials = Directory.GetFiles(dialogs, "SettingsDialog*.cs");
+            Assert.True(partials.Length > 1, "the Settings partials were not found");
+            Assert.Contains(partials, f => Path.GetFileName(f) == "SettingsDialog.xaml.cs");
+            int commits = 0, directWrites = 0;
+            foreach (var file in partials)
+            {
+                string text = File.ReadAllText(file).Replace("\r\n", "\n");
+                commits += Occurrences(text, "CommitClassFromList(");
+                directWrites += System.Text.RegularExpressions.Regex.Matches(text, @"\.LicenseClass\s*=[^=]").Count;
+            }
+            Assert.Equal(1, commits);
+            Assert.Equal(0, directWrites);
         }
 
         // ---------------- where the app saves it, by source ----------------
