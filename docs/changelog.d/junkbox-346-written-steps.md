@@ -1,2 +1,1 @@
-<!-- DRAFT: for Codex to word. Not approved copy. -->
-- A tuning step you add to your step list is now shown the same way as the steps it started with, so 2500 Hz reads "2.5 kHz" in the list, next to "500 Hz" and "1 kHz", instead of "2500 hertz". When a step is spoken, it still says "2500 hertz".
+- Custom tuning steps now use the same written units as the starting steps: 2,500 hertz appears as "2.5 kHz" in the step lists. The application's spoken step announcements still say "2500 hertz" for that value.

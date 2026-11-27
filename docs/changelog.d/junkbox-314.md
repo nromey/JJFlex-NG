@@ -1,2 +1,2 @@
-<!-- DRAFT: for Codex to word. Not approved copy. -->
-- Filter presets can now be shared. In the filter preset editor (Settings, Tuning), Export saves the selected preset to a file, and Import adds the preset in such a file to its mode's list, giving it a number if you already have one by that name. Nothing is sent to the radio, Import works with no radio connected, and pressing OK keeps an imported preset just like one you added.
+- Filter presets are now shareable through Export and Import in Settings, Tuning, Edit filter presets. Export saves the selected preset to a file.
+- Import adds a copy, using a numbered name when the name is already taken. Select OK to keep the import or Cancel to discard the import; the source file stays unchanged.

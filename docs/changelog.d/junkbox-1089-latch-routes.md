@@ -1,2 +1,1 @@
-<!-- DRAFT: for Codex to word. Not approved copy. -->
-- When a reference recording's end, the fifteen-minute limit, the safety kill or a high reflected power reading ends a held Ctrl+Space, your next fresh press now transmits even if the release of the old one never reached JJ Flexible. Before, that one press could be ignored. A held key still never transmits again until you have let go.
+- The next fresh Ctrl+Space press is no longer ignored because the previous key release did not reach JJ Flexible Radio Access. The fix covers held transmissions ended by a reference recording finishing, the fifteen-minute limit, a safety kill or high reflected power.

@@ -1,2 +1,1 @@
-<!-- DRAFT: for Codex to word. Not approved copy. -->
-- Zero beat now answers as soon as it has heard the same frequency in half of its samples, usually in about half a second instead of a full second.
+- Zero beat now finishes early when the same frequency appears in five readings. A steady signal no longer waits for all ten readings.
