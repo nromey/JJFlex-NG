@@ -80,7 +80,9 @@ namespace Radios
             + " the last, and how many. They are here because 'Record the meter stream' is on in Settings,"
             + " Diagnostics. The meters that can appear this way are micData, micPeakData, compPeakData,"
             + " hwALCData, forwardPower, reflectedPower, SWRData, paTemp, and sMeterData followed by the slice"
-            + " number.");
+            + " number. An sMeterData line also carries, after the count, the slice's receive frequency in hertz"
+            + " (freq=), its filter edges (filter=low,high) and the filter's width in hertz (width=), read at the"
+            + " moment the line is written, at the end of its second.");
 
         private sealed class Channel
         {
@@ -113,7 +115,20 @@ namespace Radios
         /// yields <c>micData: min=…</c> and "sMeterData:0" yields
         /// <c>sMeterData:0 min=…</c>.</param>
         /// <param name="value">The reading as FlexLib delivered it.</param>
-        public void Report(string channel, float value)
+        public void Report(string channel, float value) => Report(channel, value, null);
+
+        /// <summary>
+        /// <see cref="Report(string, float)"/>, with more fields after the shared
+        /// <c>min= max= last= n=</c> prefix (#758): <paramref name="lineSuffix"/>
+        /// is called only when a line is written, at most once a second per
+        /// channel and never per reading, so the disabled path stays one flag
+        /// check and the enabled path builds no string per packet. Its text goes
+        /// after <c>n=</c>, so the shared prefix stays the contract readers rely
+        /// on. A suffix that throws is left off the line.
+        /// </summary>
+        /// <param name="lineSuffix">Returns the extra fields, starting with a space;
+        /// built once by the caller, not per reading.</param>
+        public void Report(string channel, float value, Func<string> lineSuffix)
         {
             if (!_enabled) return;
 
@@ -154,6 +169,11 @@ namespace Radios
 
             if (line != null)
             {
+                if (lineSuffix != null)
+                {
+                    try { line += lineSuffix(); }
+                    catch (Exception) { /* the reading stands without its context */ }
+                }
                 Tracing.TraceRecord(Record, line);
                 System.Threading.Interlocked.Increment(ref _linesWritten);
             }

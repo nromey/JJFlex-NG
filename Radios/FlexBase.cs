@@ -8751,6 +8751,20 @@ namespace Radios
             Tracing.TraceLine("meterRemoved:" + m.ToString(), TraceLevel.Info);
         }
 
+        /// <summary>
+        /// The fields an <c>sMeterData</c> meter stream line carries after its
+        /// count (#758): the slice's frequency in hertz, its filter edges, and the
+        /// filter's width. Pure.
+        /// </summary>
+        internal static string SMeterTraceContext(double freqMHz, int filterLow, int filterHigh)
+        {
+            long hz = (long)Math.Round(freqMHz * 1_000_000d, MidpointRounding.AwayFromZero);
+            return " freq=" + hz.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + " filter=" + filterLow.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + "," + filterHigh.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + " width=" + Math.Abs((long)filterHigh - filterLow).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         private class sMeter_t
         {
             private Slice s;
@@ -8762,12 +8776,18 @@ namespace Radios
             // string concatenation per packet would give that back.
             private readonly string traceChannel;
 
+            // The receive frequency and filter beside the reading (#758, ruled
+            // by Noel 2026-11-26: on the opt-in meter stream line, the everyday
+            // log stays clean). Built once here like the key; the stream calls it
+            // only when it writes a line, so a reading still costs one flag check.
+            private readonly Func<string> traceContext;
+
             public void sMeterData(float data)
             {
                 // Only report for the active slice.
                 if (s.Active)
                 {
-                    parent.meterTrace.Report(traceChannel, data);
+                    parent.meterTrace.Report(traceChannel, data, traceContext);
                     parent._SMeter = (int)data;
                 }
             }
@@ -8777,6 +8797,7 @@ namespace Radios
                 parent = p;
                 s = slc;
                 traceChannel = "sMeterData:" + slc.Index;
+                traceContext = () => SMeterTraceContext(s.Freq, s.FilterLow, s.FilterHigh);
             }
         }
 
