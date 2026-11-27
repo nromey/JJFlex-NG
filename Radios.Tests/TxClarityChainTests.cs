@@ -533,6 +533,34 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void A_clarity_setting_saved_before_the_defaults_changed_loads_with_its_own_drive_and_mix()
+        {
+            // A build before 2026-11-26 wrote its defaults (drive 12, mix 25) into the high band's
+            // elements. Written here as that build's serializer would, the two numbers checked in the
+            // file itself; generated, never copied from anyone's settings.
+            var store = new TxNoiseSetupStore(_root);
+            var then = new TxNoiseSetup { Name = "Before" };
+            then.Clarity.Enabled = true;
+            then.Clarity.HighBand = new TxClarityBandSetup { Enabled = true, TuneHz = 2000, DriveDb = 12, MixPercent = 25, Harmonics = TxClarityHarmonics.Even };
+            Assert.True(store.Save(Radio, then).Succeeded);
+            var high = XDocument.Load(store.PathFor(Radio)!).Descendants("TxNoiseSetup")
+                .Single(r => (string?)r.Element("Name") == "Before").Element("Clarity")!.Element("HighBand")!;
+            Assert.Equal("12", (string?)high.Element("DriveDb"));
+            Assert.Equal("25", (string?)high.Element("MixPercent"));
+
+            var back = new TxNoiseSetupStore(_root).Find(Radio, "Before")!;
+            Assert.Equal((12f, 25f), (back.Clarity.HighBand.DriveDb, back.Clarity.HighBand.MixPercent));
+            Assert.Equal((12f, 25f), (back.Clarity.ToSettings().High.DriveDb, back.Clarity.ToSettings().High.MixPercent));
+            Assert.NotEqual(ClaritySettings.Default.High, back.Clarity.ToSettings().High);   // the new defaults did not reach it
+            // And it runs as stored.
+            var cond = new TxAudioConditioner();
+            cond.SetGateInForce(Record(g => { g.ClarityEnabled = back.Clarity.Enabled; g.Clarity = back.Clarity.ToSettings(); }));
+            RunChain(cond, Tone(0.1));
+            Assert.True(cond.Clarity.Enabled);
+            Assert.Equal((12f, 25f), (cond.Clarity.Settings.High.DriveDb, cond.Clarity.Settings.High.MixPercent));
+        }
+
+        [Fact]
         public void A_full_record_round_trips_through_the_store_and_a_preset_file()
         {
             var store = new TxNoiseSetupStore(_root);

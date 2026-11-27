@@ -72,7 +72,8 @@ public sealed class TxClaritySurfaceTests
         Assert.Equal(TxChangeTiming.AtUnkey, TxAudioConditioning.SetClarityBandEnabled(false, true).Timing);
         Assert.Equal(TxChangeTiming.AtUnkey, TxAudioConditioning.SetClarityHarmonics(true, TxClarityHarmonics.Odd).Timing);
         // A lever turned once something is held goes in order behind it (the one policy every transmit lever follows).
-        Assert.Equal(TxChangeTiming.AtUnkey, TxAudioConditioning.SetClarityLevel("high.drive", 20).Timing);
+        // 16, not 20: 20 is the default drive since 2026-11-26, so it could not tell a held lever from one that landed.
+        Assert.Equal(TxChangeTiming.AtUnkey, TxAudioConditioning.SetClarityLevel("high.drive", 16).Timing);
         b.X.Buffer();
         var now = b.Cond.Clarity.Settings;
         Assert.Equal(60f, now.High.MixPercent);
@@ -89,7 +90,7 @@ public sealed class TxClaritySurfaceTests
         now = b.Cond.Clarity.Settings;
         Assert.True(b.Cond.Clarity.Enabled);
         Assert.True(now.Low.Enabled);
-        Assert.Equal((ClarityHarmonics.Odd, 20f, 60f, 200f), (now.High.Harmonics, now.High.DriveDb, now.High.MixPercent, now.Low.TuneHz));
+        Assert.Equal((ClarityHarmonics.Odd, 16f, 60f, 200f), (now.High.Harmonics, now.High.DriveDb, now.High.MixPercent, now.Low.TuneHz));
         Assert.True(TxAudioConditioning.ClaritySetup.Enabled);
         Assert.True(b.Cond.AnyStageActive);
     }
@@ -1043,15 +1044,15 @@ public sealed class TxClaritySurfaceTests
             b.Unkey();
             var model = b.Noise.DynamicsEditor(editor);
             b.Noise.LoadClarityProposalIntoEditor(offer, editor);                 // what the suggest pass's Adjust does
-            b.Noise.SetDynamics(Lever("high.drive"), 20, editor, speak: false);   // and an adjustment on top
+            b.Noise.SetDynamics(Lever("high.drive"), 16, editor, speak: false);   // and an adjustment on top (not 20, the default drive since 2026-11-26)
             b.Unkey();
             Assert.True(b.Cond.Clarity.Enabled);
             Assert.Equal(offer.High.MixPercent, TxAudioConditioning.ClaritySetup.HighBand.MixPercent);
             TxDynamicsEditorDialog.Dismissed(model, kept: keep);
             b.Unkey();
             Assert.Equal(keep, TxAudioConditioning.ClaritySetup.Enabled);
-            Assert.Equal(keep ? 20f : ClaritySettings.HighDriveDefaultDb, TxAudioConditioning.ClaritySetup.HighBand.DriveDb);
-            Assert.Equal(keep ? offer.High.MixPercent : ClaritySettings.MixDefaultPercent, TxAudioConditioning.ClaritySetup.HighBand.MixPercent);
+            Assert.Equal(keep ? 16f : ClaritySettings.HighDriveDefaultDb, TxAudioConditioning.ClaritySetup.HighBand.DriveDb);
+            Assert.Equal(keep ? offer.High.MixPercent : ClaritySettings.HighMixDefaultPercent, TxAudioConditioning.ClaritySetup.HighBand.MixPercent);
         }
     }
 

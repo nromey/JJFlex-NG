@@ -648,6 +648,26 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void A_new_settings_high_band_has_the_gentle_presets_drive_and_mix_and_the_low_band_keeps_its_own_defaults()
+        {
+            // Ruled 2026-11-26: the defaults become gentle's numbers, drive 20 and mix 50, for the high band only.
+            var high = ClaritySettings.Default.High;
+            Assert.Equal((true, 2000f, 20f, 50f, ClarityHarmonics.Even), (high.Enabled, high.TuneHz, high.DriveDb, high.MixPercent, high.Harmonics));
+            Assert.Equal(ClarityPresets.Find(ClarityPresets.Gentle).Settings.High, high);
+            Assert.Equal(20f, ClaritySettings.HighDriveDefaultDb);
+            Assert.Equal(50f, ClaritySettings.HighMixDefaultPercent);
+            // The low band's defaults did not move: MixDefaultPercent is the low band's own now.
+            var low = ClaritySettings.Default.Low;
+            Assert.Equal((false, 150f, 6f, 25f, ClarityHarmonics.Both), (low.Enabled, low.TuneHz, low.DriveDb, low.MixPercent, low.Harmonics));
+            Assert.Equal(25f, ClaritySettings.MixDefaultPercent);
+            // A non-finite mix takes its own band's default.
+            var s = new ClaritySettings(new ClarityBand(true, 2000, float.NaN, float.NaN, ClarityHarmonics.Even),
+                new ClarityBand(true, 150, float.NaN, float.NaN, ClarityHarmonics.Both));
+            Assert.Equal((20f, 50f), (s.High.DriveDb, s.High.MixPercent));
+            Assert.Equal((6f, 25f), (s.Low.DriveDb, s.Low.MixPercent));
+        }
+
+        [Fact]
         public void Every_preset_is_within_range_has_a_unique_id_and_lands_inside_a_2900_Hz_SSB_filter_except_wide()
         {
             Assert.Equal(ClarityPresets.All.Count, ClarityPresets.All.Select(p => p.Id).Distinct().Count());

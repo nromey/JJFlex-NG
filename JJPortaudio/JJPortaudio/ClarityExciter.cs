@@ -78,8 +78,17 @@ namespace JJPortaudio
     {
         public const float HighTuneMinHz = 1000f, HighTuneMaxHz = 8000f, HighTuneDefaultHz = 2000f;
         public const float LowTuneMinHz = 60f, LowTuneMaxHz = 300f, LowTuneDefaultHz = 150f;
-        public const float DriveMinDb = 0f, DriveMaxDb = 24f, HighDriveDefaultDb = 12f, LowDriveDefaultDb = 6f;
-        public const float MixMinPercent = 0f, MixMaxPercent = 100f, MixDefaultPercent = 25f;
+        /// <remarks>
+        /// The high band's defaults are the gentle preset's high band (drive
+        /// 20, mix 50; ruled 2026-11-26): with the level fix's meaning of drive,
+        /// the first design's drive 12 and mix 25 added too little to hear on
+        /// a real headset take, so a first switch-on did nothing. The low band's
+        /// defaults are unchanged. A saved setting keeps the values it stored.
+        /// </remarks>
+        public const float DriveMinDb = 0f, DriveMaxDb = 24f, HighDriveDefaultDb = 20f, LowDriveDefaultDb = 6f;
+
+        /// <summary><see cref="MixDefaultPercent"/> is the low band's default mix (and it was both bands' until 2026-11-26); <see cref="HighMixDefaultPercent"/> is the high band's.</summary>
+        public const float MixMinPercent = 0f, MixMaxPercent = 100f, MixDefaultPercent = 25f, HighMixDefaultPercent = 50f;
 
         public ClaritySettings(ClarityBand high, ClarityBand low)
         {
@@ -95,7 +104,7 @@ namespace JJPortaudio
 
         /// <summary>A new setting: the high band on at its defaults, the low band off. (Clarity as a whole starts OFF; that switch is the stage's.)</summary>
         public static ClaritySettings Default { get; } = new ClaritySettings(
-            new ClarityBand(true, HighTuneDefaultHz, HighDriveDefaultDb, MixDefaultPercent, ClarityHarmonics.Even),
+            new ClarityBand(true, HighTuneDefaultHz, HighDriveDefaultDb, HighMixDefaultPercent, ClarityHarmonics.Even),
             new ClarityBand(false, LowTuneDefaultHz, LowDriveDefaultDb, MixDefaultPercent, ClarityHarmonics.Both));
 
         /// <summary>True when neither band adds anything.</summary>
@@ -110,7 +119,7 @@ namespace JJPortaudio
             float tune = Clamp(b.TuneHz, isHigh ? HighTuneMinHz : LowTuneMinHz, isHigh ? HighTuneMaxHz : LowTuneMaxHz,
                 isHigh ? HighTuneDefaultHz : LowTuneDefaultHz);
             float drive = Clamp(b.DriveDb, DriveMinDb, DriveMaxDb, isHigh ? HighDriveDefaultDb : LowDriveDefaultDb);
-            float mix = Clamp(b.MixPercent, MixMinPercent, MixMaxPercent, MixDefaultPercent);
+            float mix = Clamp(b.MixPercent, MixMinPercent, MixMaxPercent, isHigh ? HighMixDefaultPercent : MixDefaultPercent);
             var h = Enum.IsDefined(typeof(ClarityHarmonics), b.Harmonics) ? b.Harmonics : ClarityHarmonics.Even;
             return new ClarityBand(b.Enabled, tune, drive, mix, h);
         }
