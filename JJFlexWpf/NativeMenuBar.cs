@@ -4065,6 +4065,17 @@ public class NativeMenuBar : IDisposable
             dialog.ConfigDirectory = _window.OpenParms.ConfigDirectory;
             dialog.OperatorName = _window.OpenParms.GetOperatorName?.Invoke();
         }
+        else if (Radios.OperatorChange.Current is { HasOperator: true, ConfigDirectory: { } root } op)
+        {
+            // #1341: settings are intents, so the operator's filter presets are
+            // edited with no radio too, from the file Home loads them from: the
+            // settings root's Radios folder, under the operator's unique name
+            // (LicenseWithoutRadio.ForCurrentOperator resolves the licence the
+            // same way). With no operator at all the editor still refuses, and
+            // says it needs one.
+            dialog.ConfigDirectory = System.IO.Path.Combine(root, "Radios");
+            dialog.OperatorName = op.OperatorName;
+        }
         dialog.NoRadioLicense = noRadioLicense;
         if (openAtTab != null && dialog.SelectTabByHeader(openAtTab))
         {
