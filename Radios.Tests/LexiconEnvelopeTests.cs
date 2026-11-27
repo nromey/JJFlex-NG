@@ -3301,6 +3301,27 @@ namespace Radios.Tests
                 // ...and #1309: Novice and Advanced offered, held but no longer issued. DRAFT.
                 "settings.license.class_advanced_held",
                 "settings.license.class_novice_held",
+                // ...and #1312: every band's spoken name, and two Band Plans mode words. DRAFT.
+                "settings.band.name_2200m",
+                "settings.band.name_630m",
+                "settings.band.name_2m",
+                "settings.band.name_125m",
+                "settings.band.name_70cm",
+                "settings.band.name_33cm",
+                "settings.band.name_23cm",
+                "settings.band.name_13cm",
+                "settings.band.name_9cm",
+                "settings.band.name_5cm",
+                "settings.band.name_3cm",
+                "settings.band.name_1_2cm",
+                "settings.band.name_6mm",
+                "settings.band.name_4mm",
+                "settings.band.name_2_5mm",
+                "settings.band.name_2mm",
+                "settings.band.name_1mm",
+                "settings.band.name_above_275ghz",
+                "settings.band.mode_mcw",
+                "settings.band.mode_60m_data",
             };
 
             // 3095: the naming sweep classified 38 reworded entries, from

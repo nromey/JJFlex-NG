@@ -4259,11 +4259,26 @@ public class NativeMenuBar : IDisposable
     {
         // Index 0 of the license/mode lists means "All" (no filter), matching
         // the enums' "none" member — the dialog treats index 0 the same way.
-        var licenseNames = Enum.GetNames(typeof(Bands.Licenses))
-            .Select(n => n == "none" ? "All" : n).ToArray();
-        var modeNames = Enum.GetNames(typeof(Bands.Modes))
-            .Select(n => n == "none" ? "All" : n).ToArray();
-        var bandNames = Bands.TheBands.Select(b => b.Name).ToArray();
+        // Both lists stay in enum order, so a list position IS the enum value;
+        // only the words are the app's own (#1312): the class names Settings
+        // shows (never "technition"), and the mode names the notices say.
+        static string ModeWord(Bands.Modes m) => m switch
+        {
+            Bands.Modes.none => Lexicon.Get("settings.band.license_all"),
+            Bands.Modes.MCW => Lexicon.Get("settings.band.mode_mcw"),
+            Bands.Modes.M60Data => Lexicon.Get("settings.band.mode_60m_data"),
+            _ => FreqOutHandlers.FormatMode(m),
+        };
+        var licenseNames = Enum.GetValues(typeof(Bands.Licenses)).Cast<Bands.Licenses>()
+            .Select(l => l == Bands.Licenses.none ? Lexicon.Get("settings.band.license_all") : LicenseConfig.ClassLabel(l))
+            .ToArray();
+        var modeNames = Enum.GetValues(typeof(Bands.Modes)).Cast<Bands.Modes>()
+            .Select(ModeWord).ToArray();
+        // The band list maps a position to a band through this array rather
+        // than casting the position (#1282): a retired band (9 cm) keeps its
+        // enum slot for band memory but is not listed.
+        var listedBands = Bands.TheBands.Where(b => !b.Retired).Select(b => b.Band).ToArray();
+        var bandNames = Bands.TheBands.Where(b => !b.Retired).Select(b => b.Name).ToArray();
 
         int initialBand = -1;
         int initialMode = -1;
@@ -4271,7 +4286,7 @@ public class NativeMenuBar : IDisposable
         if (rig != null)
         {
             var current = Bands.Query(rig.RXFrequency);
-            if (current != null) initialBand = current.ID;
+            if (current != null) initialBand = Array.IndexOf(listedBands, current.Band);
             string mode = rig.Mode ?? "";
             initialMode = mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase)
                 ? (int)Bands.Modes.CW
@@ -4288,8 +4303,8 @@ public class NativeMenuBar : IDisposable
             InitialModeIndex = initialMode,
             QueryBands = (bandIdx, licenseIdx, modeIdx) =>
             {
-                if (bandIdx < 0) return null;
-                var band = (Bands.BandNames)bandIdx;
+                if (bandIdx < 0 || bandIdx >= listedBands.Length) return null;
+                var band = listedBands[bandIdx];
                 bool haveLicense = licenseIdx > 0;
                 bool haveMode = modeIdx > 0;
                 Bands.BandItem result;
@@ -4323,10 +4338,12 @@ public class NativeMenuBar : IDisposable
             {
                 var line = new System.Text.StringBuilder();
                 line.Append($"{KHz(d.Low)} to {KHz(d.High)}");
+                // Proper class and mode names (#1312), never the enum's own
+                // ("technition", "PhoneCW", "RTTYData").
                 if (d.License != null && d.License.Length > 0)
-                    line.Append(": " + string.Join(", ", d.License.Select(l => l.ToString())));
+                    line.Append(": " + string.Join(", ", d.License.Select(FreqOutHandlers.FormatLicense)));
                 if (d.Mode != null && d.Mode.Length > 0)
-                    line.Append(" - " + string.Join(", ", d.Mode.Select(m => m.ToString())));
+                    line.Append(" - " + string.Join(", ", d.Mode.Select(FreqOutHandlers.FormatMode)));
                 sb.AppendLine(line.ToString());
             }
         }

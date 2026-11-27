@@ -3936,10 +3936,15 @@ public class FreqOutHandlers
     };
 
     /// <summary>
-    /// Human-readable band names for speech output.
+    /// Human-readable band names for speech output: every band in the table
+    /// (#1312), so a notice never says the raw enum name ("Entering m2190
+    /// band"). Band memory's enum names (m2190 is 2200 m, m560 is 630 m) are
+    /// kept for its sake; only the words are right.
     /// </summary>
-    private static string BandDisplayName(Bands.BandNames band) => band switch
+    internal static string BandDisplayName(Bands.BandNames band) => band switch
     {
+        Bands.BandNames.m2190 => Lexicon.Get("settings.band.name_2200m"),
+        Bands.BandNames.m560 => Lexicon.Get("settings.band.name_630m"),
         Bands.BandNames.m160 => Lexicon.Get("settings.band.name_160m"),
         Bands.BandNames.m80 => Lexicon.Get("settings.band.name_80m"),
         Bands.BandNames.m60 => Lexicon.Get("settings.band.name_60m"),
@@ -3951,6 +3956,22 @@ public class FreqOutHandlers
         Bands.BandNames.m12 => Lexicon.Get("settings.band.name_12m"),
         Bands.BandNames.m10 => Lexicon.Get("settings.band.name_10m"),
         Bands.BandNames.m6 => Lexicon.Get("settings.band.name_6m"),
+        Bands.BandNames.m2 => Lexicon.Get("settings.band.name_2m"),
+        Bands.BandNames.m125 => Lexicon.Get("settings.band.name_125m"),
+        Bands.BandNames.m70 => Lexicon.Get("settings.band.name_70cm"),
+        Bands.BandNames.m35 => Lexicon.Get("settings.band.name_33cm"),
+        Bands.BandNames.m23 => Lexicon.Get("settings.band.name_23cm"),
+        Bands.BandNames.m13 => Lexicon.Get("settings.band.name_13cm"),
+        Bands.BandNames.m9 => Lexicon.Get("settings.band.name_9cm"),
+        Bands.BandNames.m6c => Lexicon.Get("settings.band.name_5cm"),
+        Bands.BandNames.m3c => Lexicon.Get("settings.band.name_3cm"),
+        Bands.BandNames.m125c => Lexicon.Get("settings.band.name_1_2cm"),
+        Bands.BandNames.m6m => Lexicon.Get("settings.band.name_6mm"),
+        Bands.BandNames.m4m => Lexicon.Get("settings.band.name_4mm"),
+        Bands.BandNames.m25m => Lexicon.Get("settings.band.name_2_5mm"),
+        Bands.BandNames.m2m => Lexicon.Get("settings.band.name_2mm"),
+        Bands.BandNames.m1m => Lexicon.Get("settings.band.name_1mm"),
+        Bands.BandNames.mAbove275g => Lexicon.Get("settings.band.name_above_275ghz"),
         _ => band.ToString()
     };
 
@@ -4363,15 +4384,29 @@ public class FreqOutHandlers
         }
 
         if (License == null) return null;
-        var bandInfo = Bands.Query(band, JudgedLicenseClass());
+        return SubBandLabel(freq, band, JudgedLicenseClass());
+    }
+
+    /// <summary>
+    /// The sub-band notice's words for <paramref name="freq"/> on
+    /// <paramref name="band"/>, for an operator of class
+    /// <paramref name="operatorClass"/>: the division of that class the
+    /// frequency is in, named with the OPERATOR's class and the division's
+    /// first mode ("Technician CW"), or null when it is in none. Pure.
+    /// </summary>
+    /// <remarks>#1312: it named the division's FIRST listed class, so a
+    /// Technician at 3.525 MHz heard "Novice CW" and an Extra at 7.200 MHz
+    /// "Advanced Phone and CW".</remarks>
+    internal static string? SubBandLabel(ulong freq, Bands.BandNames band, Bands.Licenses operatorClass)
+    {
+        var bandInfo = Bands.Query(band, operatorClass);
         if (bandInfo?.Divisions == null) return null;
 
         foreach (var div in bandInfo.Divisions)
         {
             if (freq >= div.Low && freq <= div.High)
             {
-                string licStr = div.License != null && div.License.Length > 0
-                    ? FormatLicense(div.License[0]) : Lexicon.Get("settings.band.license_all");
+                string licStr = FormatLicense(operatorClass);
                 string modeStr = div.Mode != null && div.Mode.Length > 0
                     ? FormatMode(div.Mode[0]) : "";
                 return string.IsNullOrEmpty(modeStr)
@@ -4382,7 +4417,8 @@ public class FreqOutHandlers
         return null;
     }
 
-    private static string FormatLicense(Bands.Licenses lic) => lic switch
+    /// <summary>A licence class's spoken name, for the notices and the Band Plans result (#1312).</summary>
+    internal static string FormatLicense(Bands.Licenses lic) => lic switch
     {
         Bands.Licenses.novice => Lexicon.Get("settings.band.license_novice"),
         Bands.Licenses.technition => Lexicon.Get("settings.band.license_technician"),
@@ -4392,7 +4428,8 @@ public class FreqOutHandlers
         _ => Lexicon.Get("settings.band.license_all")
     };
 
-    private static string FormatMode(Bands.Modes mode) => mode switch
+    /// <summary>A band division's mode in words, for the notices and the Band Plans result (#1312).</summary>
+    internal static string FormatMode(Bands.Modes mode) => mode switch
     {
         Bands.Modes.CW => Lexicon.Get("settings.band.mode_cw"),
         Bands.Modes.MCW => Lexicon.Get("settings.band.mode_cw"),
