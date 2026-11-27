@@ -62,6 +62,7 @@ public sealed class TransmitRulesDoorsTests : IDisposable
         ZeroPowerDoors.BreakInOverride = null;
         ZeroPowerDoors.TransmitRulesOverride = null;
         ZeroPowerDoors.TeardownOverride = null;
+        ZeroPowerDoors.NoCallsignOverride = null;
         Dialogs.AudioWorkshopDialog.PttControllerSource = _pttSourceWas;
         ZeroPowerDoors.Forget();
         if (_controller.IsTransmitting) _controller.EscapeUnlock();
@@ -227,27 +228,73 @@ public sealed class TransmitRulesDoorsTests : IDisposable
         Assert.False(TunerStartRefused(main));
     }
 
+    // Repair round 2 (the #1307 re-checks' N2 and N5): ZeroPowerDoors.RulesVerdict
+    // catches every exception and admits, so an override that throws as a "not
+    // reached" sentinel passes whether or not the rules are asked. Every "never
+    // asked" and "in this order" claim below counts the asks instead.
+
     [Fact]
     public void The_antenna_tuner_s_door_refuses_during_an_Audio_Check_teardown_before_anything_else()
     {
+        int rulesAsked = 0;
         ZeroPowerDoors.TeardownOverride = _ => true;
-        ZeroPowerDoors.TransmitRulesOverride = (_, _) => throw new InvalidOperationException("not reached");
+        ZeroPowerDoors.TransmitRulesOverride = (_, _) => { rulesAsked++; return TransmitVerdict.LockoutFrequency; };
         var main = MainWith(_rig);
         bool refused = false;
         var said = Said(() => refused = TunerStartRefused(main));
         Assert.True(refused);
         Assert.Equal(new[] { Lexicon.Get("audio.check.teardown_refuses") }, said);
+        Assert.Equal(0, rulesAsked);                       // the rules were not asked before the teardown answered
         ZeroPowerDoors.Forget();
-        ZeroPowerDoors.TeardownOverride = _ => false;      // positive control
-        ZeroPowerDoors.TransmitRulesOverride = (_, _) => TransmitVerdict.Allowed;
-        Assert.False(TunerStartRefused(main));
+        ZeroPowerDoors.TeardownOverride = _ => false;      // positive control: past the teardown, the rules are asked
+        Assert.True(TunerStartRefused(main));
+        Assert.Equal(1, rulesAsked);
     }
 
     [Fact]
     public void The_tune_carrier_s_doors_are_still_never_asked_the_rules()
     {
-        ZeroPowerDoors.TransmitRulesOverride = (_, _) => throw new InvalidOperationException("tune is never asked");
+        int rulesAsked = 0;
+        ZeroPowerDoors.TransmitRulesOverride = (_, _) => { rulesAsked++; return TransmitVerdict.LockoutFrequency; };
         Assert.False(ZeroPowerDoors.RefuseTunePress(_rig, "the tune carrier"));
+        Assert.False(ZeroPowerDoors.RefuseTunePress(_rig, "the tune menu", afterMenu: true));
+        Assert.Equal(0, rulesAsked);
+        Assert.True(ZeroPowerDoors.RefuseTunerStart(_rig, "the antenna tuner"));   // positive control: the tuner's door does ask
+        Assert.Equal(1, rulesAsked);
+    }
+
+    /// <summary>
+    /// The tuner's door asks, in order: an Audio Check teardown, the callsign
+    /// (with the callsign check ON), zero tune power, then the lockout alone.
+    /// Each question is recorded; a refusal at one stops every later one.
+    /// </summary>
+    [Fact]
+    public void The_antenna_tuner_s_door_asks_teardown_then_callsign_then_tune_power_then_the_lockout_alone()
+    {
+        var asked = new List<string>();
+        string refuseAt = "";
+        FlexBase.CallsignCheckOn = true;   // restored by Dispose
+        ZeroPowerDoors.TeardownOverride = _ => { asked.Add("teardown"); return refuseAt == "teardown"; };
+        ZeroPowerDoors.NoCallsignOverride = _ => { asked.Add("callsign"); return refuseAt == "callsign"; };
+        ZeroPowerDoors.AtZeroOverride = (_, tune) => { asked.Add(tune ? "tune power" : "transmit power"); return refuseAt == "tune power"; };
+        ZeroPowerDoors.TransmitRulesOverride = (_, sixty) =>
+        {
+            asked.Add(sixty ? "lockout and 60 m" : "lockout");
+            return refuseAt == "lockout" ? TransmitVerdict.LockoutFrequency : TransmitVerdict.Allowed;
+        };
+        var all = new[] { "teardown", "callsign", "tune power", "lockout" };
+
+        Assert.False(ZeroPowerDoors.RefuseTunerStart(_rig, "the antenna tuner"));
+        Assert.Equal(all, asked);                          // nothing refuses: every question, in order
+
+        for (int i = 0; i < all.Length; i++)
+        {
+            ZeroPowerDoors.Forget();
+            asked.Clear();
+            refuseAt = all[i];
+            Assert.True(ZeroPowerDoors.RefuseTunerStart(_rig, "the antenna tuner"));
+            Assert.Equal(all.Take(i + 1), asked);          // refused here, and nothing after it is asked
+        }
     }
 
     /// <summary>
