@@ -197,4 +197,43 @@ public sealed class LockoutModeTests
         Assert.Equal(Lexicon.Get("audio.ptt.blocked_by_license_mode"), new TransmitVerdict(LockoutReason.Mode).RefusalSentence());
         Assert.NotEqual(Lexicon.Get("audio.ptt.blocked_by_license"), Lexicon.Get("audio.ptt.blocked_by_license_mode"));
     }
+
+    // ---- repair round 1: a sideband signal is judged by the transmit filter ----
+
+    private static LockoutReason Transmitting(ulong hz, string mode, int sliceLow, int sliceHigh, int txLow, int txHigh,
+        Bands.Licenses license) =>
+        TransmitBandLockout.JudgeReason(new TransmitSliceReading(hz, mode, sliceLow, sliceHigh) { TxFilterLow = txLow, TxFilterHigh = txHigh },
+            0, 0, 0, license, out _, out _);
+
+    [Fact]
+    public void A_receive_filter_wider_than_the_channel_no_longer_refuses_a_lawful_60_metre_channel_transmission()
+    {
+        // The Opus check's probe: General, 5330.5 USB, transmit filter 100 to 2,900,
+        // slice (receive) filter 100 to 3,000. Refused for its frequency until repair 1.
+        Assert.Equal(LockoutReason.None, Transmitting(5_330_500, "USB", 100, 3000, 100, 2900, General));
+        Assert.Equal(LockoutReason.None, Transmitting(5_346_500, "DIGU", 0, 3200, 100, 2900, General));
+        // Unreported: the app's default, 100 to 2,900.
+        Assert.Equal(LockoutReason.None, Transmitting(5_330_500, "USB", 100, 3000, 0, 0, General));
+    }
+
+    [Fact]
+    public void A_sideband_transmit_filter_that_crosses_an_edge_is_still_refused()
+    {
+        // 100 to 3,100 above 5330.5 ends 100 Hz past Channel 1 (5333.4).
+        Assert.Equal(LockoutReason.Frequency, Transmitting(5_330_500, "USB", 100, 2800, 100, 3100, General));
+        // LSB at 7.177 MHz with 100 to 2,900 starts at 7.1741, below General's 7.175:
+        // refused, though the narrow slice filter alone would have fitted.
+        Assert.Equal(LockoutReason.Frequency, Transmitting(7_177_000, "LSB", -1800, -100, 100, 2900, General));
+        Assert.Equal(LockoutReason.Frequency, Transmitting(7_177_000, "DIGL", -1800, -100, 100, 2900, General));
+        Assert.Equal(LockoutReason.None, Transmitting(7_178_000, "LSB", -1800, -100, 100, 2900, General));   // positive control
+    }
+
+    [Fact]
+    public void FM_keeps_the_slice_filter_so_FM_beside_a_CW_only_segment_or_a_band_edge_is_still_refused()
+    {
+        // A transmit filter describes no FM signal: its width comes from its deviation.
+        Assert.Equal(LockoutReason.Mode, Transmitting(144_104_000, "FM", -8000, 8000, 100, 2900, Technician));
+        Assert.Equal(LockoutReason.Frequency, Transmitting(53_996_000, "FM", -8000, 8000, 100, 2900, Technician));
+        Assert.Equal(LockoutReason.None, Transmitting(146_520_000, "FM", -8000, 8000, 100, 2900, Technician));   // positive control
+    }
 }

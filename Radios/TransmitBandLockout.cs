@@ -27,9 +27,10 @@ namespace Radios
         /// <summary>
         /// The radio's transmit filter, low edge, in hertz, as FlexLib reports it
         /// (at or above 0, so it carries no side; the mode says which side). Read
-        /// for the 60 m rule's emission judgement only (#1161), never by the
-        /// lockout's arithmetic. 0 with <see cref="TxFilterHigh"/> 0 means not
-        /// reported.
+        /// for the 60 m rule's emission judgement (#1161), and by the lockout for
+        /// USB, LSB, Digital USB and Digital LSB only
+        /// (<see cref="TransmitBandLockout.JudgedEdges"/>, repair round 1). 0 with
+        /// <see cref="TxFilterHigh"/> 0 means not reported.
         /// </summary>
         public int TxFilterLow { get; init; }
 
@@ -49,10 +50,13 @@ namespace Radios
     /// lockout used to judge the receive frequency with the selected slice's
     /// filter: a transmit slice outside the licence keyed, and one inside it
     /// was refused when the receive slice was outside.</para>
-    /// <para><b>The edges are the transmit slice's own receive filter, never the
-    /// radio's transmit filter.</b> FlexLib clamps <c>Radio.TXFilterLow</c> at 0
-    /// or above, so it carries no side: put into this arithmetic it would judge
-    /// every lower-sideband signal on the wrong side of the carrier.</para>
+    /// <para><b>The edges.</b> <see cref="Judge"/> and <see cref="Allows"/> judge
+    /// the edges they are given. <see cref="JudgeReason"/>, the judge the app runs,
+    /// gives them the radio's transmit filter for USB, LSB, Digital USB and Digital
+    /// LSB, placed on the mode's side because FlexLib clamps
+    /// <c>Radio.TXFilterLow</c> at 0 or above and so carries no side, and the
+    /// transmit slice's own filter for every other mode (<see cref="JudgedEdges"/>,
+    /// repair round 1 of junk box batch 31).</para>
     /// <para><b>No transmit slice of ours</b> (<c>TXFrequency</c> reads 0, for
     /// instance while another client holds transmit): judged exactly as before
     /// this change, the selected slice's frequency and filter, and the caller
@@ -237,14 +241,56 @@ namespace Radios
             if (transmit is { } t && t.Hz != 0UL)
             {
                 judgedSelected = false;
-                var first = AllowsReason(t.Hz, t.Mode, t.FilterLow, t.FilterHigh, license, out modeUnrecognised);
+                var (low, high) = JudgedEdges(t);
+                var first = AllowsReason(t.Hz, t.Mode, low, high, license, out modeUnrecognised);
                 if (first != LockoutReason.None) return first;
                 // Not established which of two frequencies the radio uses: both must pass (#1207).
                 return t.AlsoJudgeHz is not { } also ? LockoutReason.None
-                    : AllowsReason(also, t.Mode, t.FilterLow, t.FilterHigh, license, out _);
+                    : AllowsReason(also, t.Mode, low, high, license, out _);
             }
             judgedSelected = true;
             return Allows(selectedHz, null, selectedLow, selectedHigh, license) ? LockoutReason.None : LockoutReason.Frequency;
+        }
+
+        /// <summary>
+        /// The filter edges the lockout judges a transmit slice's signal by
+        /// (repair round 1 of junk box batch 31, from #1161's 2026-11-19 05:33
+        /// note): for USB, LSB, Digital USB and Digital LSB, the radio's TRANSMIT
+        /// filter, unsigned, which <see cref="SignalExtent"/> places on the mode's
+        /// side, or the app's default when it is not reported
+        /// (<see cref="TransmitFilterOrDefault"/>); for every other mode, the slice's
+        /// own filter, as before.
+        /// </summary>
+        /// <remarks>
+        /// <para>A sideband signal is shaped by the transmit filter, so judging it by
+        /// the slice's receive filter refused a lawful channel transmission whenever
+        /// the receive filter was wider than 2.8 kHz (General, 5330.5 USB, transmit
+        /// filter 100 to 2,900, slice filter 100 to 3,000: refused for its frequency).
+        /// The old reason for avoiding the transmit filter, that FlexLib clamps it at 0
+        /// or above and so carries no side, is answered for these four modes by the
+        /// mode giving the side. It is not answered for the rest: an FM signal's width
+        /// comes from its deviation, which no transmit filter describes, so FM, AM,
+        /// CW and the others keep the slice filter.</para>
+        /// <para><b>Two orchestrator's decisions</b> (night question J4): the
+        /// unreported fallback (100 to 2,900 Hz) now applies to the lockout on every
+        /// band, not only 60 m; and for Digital USB and Digital LSB this rests on the
+        /// assumption, not established, that a Flex radio applies the transmit filter
+        /// in those modes as in USB and LSB. A RigSurface or panadapter reading of a
+        /// Digital USB test tone would settle it.</para>
+        /// </remarks>
+        internal static (int Low, int High) JudgedEdges(TransmitSliceReading t)
+        {
+            switch ((t.Mode ?? "").Trim().ToUpperInvariant())
+            {
+                case "USB":
+                case "LSB":
+                case "DIGU":
+                case "DIGL":
+                    var (low, high, _) = TransmitFilterOrDefault(t.TxFilterLow, t.TxFilterHigh);
+                    return (low, high);
+                default:
+                    return (t.FilterLow, t.FilterHigh);
+            }
         }
 
         /// <summary>

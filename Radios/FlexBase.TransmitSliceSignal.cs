@@ -13,9 +13,13 @@ namespace Radios
         /// slices is designated, or its frequency reads 0.
         /// </summary>
         /// <remarks>
-        /// The filter is that slice's own, as FlexLib reports it (signed), not
-        /// the radio's transmit filter: FlexLib clamps <c>TXFilterLow</c> at 0 or
-        /// above, which carries no side (see <see cref="TransmitBandLockout"/>).
+        /// The reading carries both filters: that slice's own, as FlexLib reports
+        /// it (signed), and the radio's transmit filter, which FlexLib clamps at 0
+        /// or above, so it carries no side. For USB, LSB, Digital USB and Digital
+        /// LSB the lockout judges the TRANSMIT filter, placed on the mode's side,
+        /// with the app's default when it is unreported; for every other mode the
+        /// slice's own filter (<see cref="TransmitBandLockout.JudgedEdges"/>, repair
+        /// round 1 of junk box batch 31). The 60 m rule judges the transmit filter.
         /// The frequency is the one <see cref="TXFrequency"/> reads for the
         /// designated slice, a tune still on its way included.
         /// <para><b>With XIT on, the frequency carries the XIT offset</b> (#1194):
@@ -57,7 +61,8 @@ namespace Radios
             string mode = s.DemodMode ?? "";
             var (judged, also) = TransmittedHz(hz, XitOffsetHz(s.XITOn, s.XITFreq), TxOffsetHz(s.TXOffsetFreq), mode);
             // The radio's transmit filter rides along for the 60 m rule's
-            // emission judgement (#1161); the lockout never reads it.
+            // emission judgement (#1161), and for the lockout's in the four
+            // sideband modes (repair round 1).
             return new TransmitSliceReading(judged, mode, s.FilterLow, s.FilterHigh)
             {
                 AlsoJudgeHz = also,
