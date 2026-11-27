@@ -475,6 +475,20 @@ public sealed class NoiseLayerStageKeysTests
         Assert.True(b.Noise.LastRestoreKeptOutsideChanges);
     }
 
+    [Fact]
+    public void A_handoff_setting_somebody_else_put_back_is_not_the_layers_to_undo_and_Escape_says_nothing_was_undone()
+    {
+        using var b = new Bridge();
+        b.Noise.SetProcessorHandoffSetting(true, Home);
+        var snap = b.Noise.TakeSnapshot();
+        var keys = Keys_(b.F, transmit: true);
+        keys.Handle(NoiseLayerKeys.ProcessorHandoffKey);          // the layer's: off
+        b.Noise.SetProcessorHandoffSetting(true, Home);           // Home's: on again, afterwards
+        Assert.False(b.Noise.RestoreSnapshot(snap, Layer));       // it no longer reads as the layer left it
+        Assert.True(b.Noise.ProcessorHandoffSetting);
+        Assert.Equal("audio.noise_layer.restored_nothing", b.Noise.RestoreClosingKey(false));
+    }
+
     // ── Shift+Alt+L: Learn the room ──
 
     [Fact]
