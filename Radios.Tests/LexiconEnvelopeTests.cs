@@ -3330,6 +3330,9 @@ namespace Radios.Tests
                 "audio.ptt.blocked_sixty_meter_channel_mode",
                 "audio.ptt.blocked_sixty_meter_too_wide_mode",
                 "audio.ptt.blocked_sixty_meter_emission",
+                // repair 1: an emission refusal that rests on an estimate says so. DRAFT.
+                "audio.ptt.blocked_sixty_meter_cw_edge",
+                "audio.ptt.blocked_sixty_meter_filter_assumed",
                 "audio.ptt.blocked_sixty_meter_outside",
                 "audio.ptt.blocked_by_both",
                 "settings.license.enforce_tx_rules_label",

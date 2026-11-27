@@ -37,9 +37,16 @@ namespace Radios
         /// <summary>A mode far wider than the 2.8 kHz 60 m allows (the FM modes, D-STAR),
         /// whatever its filter (97.307(f)(14)).</summary>
         TooWideMode,
-        /// <summary>The transmit filter makes the signal wider than 2.8 kHz, or carries part
-        /// of it past the channel's or the segment's edge.</summary>
+        /// <summary>The radio's reported transmit filter makes the signal wider than 2.8 kHz,
+        /// or carries part of it past the channel's or the segment's edge.</summary>
         Emission,
+        /// <summary>A CW signal, judged as 150 Hz centred on its carrier (nothing measured),
+        /// would reach past the channel's or the segment's edge (repair round 1).</summary>
+        EmissionCwEstimated,
+        /// <summary>The radio has not reported its transmit filter, so the app's default
+        /// (100 to 2,900 Hz) was assumed, and at that width the signal would be too wide or
+        /// past an edge (repair round 1; the assumption is night question J4's).</summary>
+        EmissionFilterAssumed,
         /// <summary>On the 60 m band, but on no channel and outside the segment.</summary>
         Outside,
     }
@@ -90,6 +97,8 @@ namespace Radios
                 SixtyMeterReason.ChannelMode => Lexicon.Get("audio.ptt.blocked_sixty_meter_channel_mode"),
                 SixtyMeterReason.TooWideMode => Lexicon.Get("audio.ptt.blocked_sixty_meter_too_wide_mode"),
                 SixtyMeterReason.Emission => Lexicon.Get("audio.ptt.blocked_sixty_meter_emission"),
+                SixtyMeterReason.EmissionCwEstimated => Lexicon.Get("audio.ptt.blocked_sixty_meter_cw_edge"),
+                SixtyMeterReason.EmissionFilterAssumed => Lexicon.Get("audio.ptt.blocked_sixty_meter_filter_assumed"),
                 SixtyMeterReason.Outside => Lexicon.Get("audio.ptt.blocked_sixty_meter_outside"),
                 _ => null,
             };

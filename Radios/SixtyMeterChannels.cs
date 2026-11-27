@@ -453,7 +453,12 @@ namespace Radios
         /// it; LSB, Digital LSB and FreeDV lower below it; AM, SAM and DSB either
         /// side, the carrier plus and minus the filter's high edge). A filter the
         /// operator widened is exactly what this rule exists to catch (#1172's
-        /// report: "the transmit-time check must judge the real filter").</para>
+        /// report: "the transmit-time check must judge the real filter"). CW is
+        /// 150 Hz centred on the carrier, and a filter the radio has not reported
+        /// is taken as the app's default; a refusal resting on either says it was
+        /// estimated (<see cref="SixtyMeterReason.EmissionCwEstimated"/>,
+        /// <see cref="SixtyMeterReason.EmissionFilterAssumed"/>), never that the
+        /// operator's transmit filter caused it.</para>
         /// <para><b>RTTY is let through, not judged</b>, on a channel and in the
         /// segment: what a Flex RTTY slice frequency means (mark, centre or
         /// something else) is not established, so a judgement could refuse a
@@ -495,7 +500,7 @@ namespace Radios
             // and refused when either placement is.
             foreach (var e in placements)
             {
-                var reason = JudgePlaced(countryCode, alloc.Value, carrierHz, m, e.Low, e.High, e.WidthJudged);
+                var reason = JudgePlaced(countryCode, alloc.Value, carrierHz, m, e.Low, e.High, e.Estimate);
                 if (reason != SixtyMeterReason.None) return reason;
             }
             return SixtyMeterReason.None;
@@ -508,10 +513,18 @@ namespace Radios
         /// The judge's own legality table: see <see cref="JudgeTransmission"/>.
         /// </summary>
         private static SixtyMeterReason JudgePlaced(string countryCode, (Channel[] Channels, Segment? Segment) alloc,
-            ulong carrierHz, string m, long low, long high, bool widthJudged)
+            ulong carrierHz, string m, long low, long high, Estimate estimate)
         {
             var seg = alloc.Segment;
             bool channelMode = m is "USB" or "DIGU" or "CW";
+            // The emission reason says what was measured: the radio's own filter,
+            // or an estimate (CW's 150 Hz, or the default filter assumed).
+            var emission = estimate switch
+            {
+                Estimate.Cw => SixtyMeterReason.EmissionCwEstimated,
+                Estimate.FilterAssumed => SixtyMeterReason.EmissionFilterAssumed,
+                _ => SixtyMeterReason.Emission,
+            };
 
             // The dial names its place first: a recognised channel dial, else the
             // segment when the dial is inside it, else a channel the signal is on.
@@ -522,16 +535,16 @@ namespace Radios
             {
                 if (!channelMode) return SixtyMeterReason.ChannelMode;
                 if (!IsValidSixtyMeterFrequency(countryCode, carrierHz, m)) return SixtyMeterReason.Dial;
-                if (widthJudged && high - low > MaxWidthHz) return SixtyMeterReason.Emission;
+                if (high - low > MaxWidthHz) return emission;
                 long edgeLow = (long)ch.CentreHz - MaxWidthHz / 2, edgeHigh = (long)ch.CentreHz + MaxWidthHz / 2;
-                return low >= edgeLow && high <= edgeHigh ? SixtyMeterReason.None : SixtyMeterReason.Emission;
+                return low >= edgeLow && high <= edgeHigh ? SixtyMeterReason.None : emission;
             }
 
             if (seg != null && high >= (long)seg.StartHz && low <= (long)seg.EndHz)
             {
                 if (IsFmFamily(m)) return SixtyMeterReason.TooWideMode;
-                if (widthJudged && high - low > MaxWidthHz) return SixtyMeterReason.Emission;
-                return low >= (long)seg.StartHz && high <= (long)seg.EndHz ? SixtyMeterReason.None : SixtyMeterReason.Emission;
+                if (high - low > MaxWidthHz) return emission;
+                return low >= (long)seg.StartHz && high <= (long)seg.EndHz ? SixtyMeterReason.None : emission;
             }
 
             return SixtyMeterReason.Outside;
@@ -543,6 +556,26 @@ namespace Radios
         /// <summary>The widest emission allowed on 60 m, and a channel's width (97.303(h)(3), 97.307(f)(14)).</summary>
         private const long MaxWidthHz = 2_800;
 
+        /// <summary>What an emission's extent rests on.</summary>
+        private enum Estimate
+        {
+            /// <summary>The radio's own reported transmit filter.</summary>
+            Measured,
+            /// <summary>CW, judged as 150 Hz centred on the carrier.</summary>
+            Cw,
+            /// <summary>The transmit filter was not reported, so the app's default was assumed.</summary>
+            FilterAssumed,
+        }
+
+        /// <summary>
+        /// CW's width, centred on the carrier: 150HA1A, the designator 97.303(h)(3)
+        /// gives for CW on the channels. Using it in the segment too is an
+        /// extrapolation, the orchestrator's decision (repair round 1 of junk box
+        /// batch 31). Never the 500 Hz of <see cref="NominalEmission"/>, which is a
+        /// navigation margin and refused lawful CW 100 Hz inside the segment.
+        /// </summary>
+        private const long CwWidthHz = 150;
+
         /// <summary>
         /// Where the transmitted signal sits, the judge's own emission model:
         /// one placement for every mode but a FreeDV mode whose side is not
@@ -552,21 +585,24 @@ namespace Radios
         /// <para>USB, Digital USB, FreeDV and FreeDV upper: the transmit filter
         /// above the carrier. LSB, Digital LSB and FreeDV lower: below it. AM,
         /// SAM and DSB: the carrier plus and minus the filter's high edge. With
-        /// the filter not reported, 3 kHz from the carrier, as
-        /// <see cref="NominalEmission"/> (which the snap and arrival use and this
-        /// judge does not), a snapping margin, so its width is not judged.</para>
-        /// <para>CW and RTTY: 500 Hz centred on the carrier. The FM modes and a
-        /// mode with no entry: the filter's high edge either side, or 3 kHz,
-        /// which serves only to ask whether the signal touches 60 m.</para>
+        /// the filter not reported (both edges 0), the app's default transmit
+        /// filter, 100 to 2,900 Hz (<see cref="TransmitBandLockout.TransmitFilterOrDefault"/>),
+        /// marked as assumed.</para>
+        /// <para>CW: 150 Hz centred on the carrier, marked as estimated. RTTY
+        /// (let through, never judged): 500 Hz centred, only to ask whether it
+        /// touches 60 m. The FM modes and a mode with no entry: the filter's high
+        /// edge either side, again only to ask whether the signal touches 60 m.</para>
+        /// <para>None of this is <see cref="NominalEmission"/>, which the snap and
+        /// the arrival use and this judge must not change.</para>
         /// </remarks>
-        private static List<(long Low, long High, bool WidthJudged)> TransmittedEmission(ulong carrierHz, string m, int txLow, int txHigh)
+        private static List<(long Low, long High, Estimate Estimate)> TransmittedEmission(ulong carrierHz, string m, int txLow, int txHigh)
         {
             long c = (long)carrierHz;
-            bool reported = txHigh > txLow && txHigh > 0;
-            long lo = Math.Max(0, Math.Min(txLow, txHigh)), hi = Math.Max(txLow, txHigh);
-            (long, long, bool) upper = reported ? (c + lo, c + hi, true) : (c, c + 3_000, false);
-            (long, long, bool) lower = reported ? (c - hi, c - lo, true) : (c - 3_000, c, false);
-            var list = new List<(long Low, long High, bool WidthJudged)>(2);
+            var (lo, hi, assumed) = TransmitBandLockout.TransmitFilterOrDefault(txLow, txHigh);
+            var filter = assumed ? Estimate.FilterAssumed : Estimate.Measured;
+            (long, long, Estimate) upper = (c + lo, c + hi, filter);
+            (long, long, Estimate) lower = (c - hi, c - lo, filter);
+            var list = new List<(long Low, long High, Estimate Estimate)>(2);
             switch (m)
             {
                 case "USB":
@@ -583,12 +619,13 @@ namespace Radios
                 case "AM":
                 case "SAM":
                 case "DSB":
-                    long amHalf = reported ? hi : 3_000;
-                    list.Add((c - amHalf, c + amHalf, true));
+                    list.Add((c - hi, c + hi, filter));
                     break;
                 case "CW":
+                    list.Add((c - CwWidthHz / 2, c + CwWidthHz / 2, Estimate.Cw));
+                    break;
                 case "RTTY":
-                    list.Add((c - 250, c + 250, false));
+                    list.Add((c - 250, c + 250, Estimate.Measured));
                     break;
                 default:
                     if (m.StartsWith("FDV", StringComparison.Ordinal))
@@ -597,8 +634,7 @@ namespace Radios
                         list.Add(lower);
                         break;
                     }
-                    long half = reported ? hi : 3_000;
-                    list.Add((c - half, c + half, false));
+                    list.Add((c - hi, c + hi, filter));
                     break;
             }
             return list;

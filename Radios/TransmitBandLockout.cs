@@ -172,6 +172,33 @@ namespace Radios
             };
         }
 
+        /// <summary>
+        /// The app's own default transmit filter, <see cref="AudioChainPreset.TxFilterLow"/>
+        /// to <see cref="AudioChainPreset.TxFilterHigh"/> (100 to 2,900 Hz), read from
+        /// the preset's own defaults so the two cannot drift.
+        /// </summary>
+        private static readonly (int Low, int High) DefaultTxFilter =
+            (new AudioChainPreset().TxFilterLow, new AudioChainPreset().TxFilterHigh);
+
+        /// <summary>
+        /// The radio's transmit filter as FlexLib reports it (unsigned), or, when it
+        /// is not reported (both edges 0), the app's default transmit filter, with
+        /// <c>Assumed</c> set so a refusal can say the width was assumed.
+        /// </summary>
+        /// <remarks>
+        /// The orchestrator's decision for repair round 1 of junk box batch 31 (night
+        /// question J4): during the moment a radio has not reported its filter, a real
+        /// filter the operator widened is judged as the default, so it would be
+        /// admitted. A RigSurface read just after connecting settles whether that
+        /// moment exists. The 3 kHz snapping margin it replaces refused a correct
+        /// channel dial and blamed a filter nobody had measured.
+        /// </remarks>
+        public static (int Low, int High, bool Assumed) TransmitFilterOrDefault(int txLow, int txHigh)
+        {
+            if (txLow == 0 && txHigh == 0) return (DefaultTxFilter.Low, DefaultTxFilter.High, true);
+            return (Math.Max(0, Math.Min(txLow, txHigh)), Math.Max(0, Math.Max(txLow, txHigh)), false);
+        }
+
         /// <summary>Whether a division with these modes allows <paramref name="kind"/>.
         /// A division that lists no modes allows every one.</summary>
         internal static bool Permits(Bands.Modes[]? modes, EmissionKind kind)

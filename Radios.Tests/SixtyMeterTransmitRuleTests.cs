@@ -88,11 +88,59 @@ public sealed class SixtyMeterTransmitRuleTests
         Assert.Equal(SixtyMeterReason.Emission, Judge(5_357_000, "AM"));
     }
 
+    /// <summary>
+    /// Repair round 1: an unreported filter (both edges 0) is taken as the app's
+    /// default transmit filter, 100 to 2,900 Hz, not the 3 kHz snapping margin,
+    /// which refused a correct channel dial and blamed a filter nobody measured.
+    /// The orchestrator's decision (night question J4). This test pinned the old
+    /// margin (5363.6 USB unreported as Emission) and now pins the new reading.
+    /// </summary>
     [Fact]
-    public void An_unreported_transmit_filter_falls_back_to_the_nominal_emission()
+    public void An_unreported_transmit_filter_is_taken_as_the_app_s_default_and_said_to_be_assumed()
     {
-        Assert.Equal(SixtyMeterReason.Emission, Judge(5_363_600, "USB", 0, 0));
-        Assert.Equal(SixtyMeterReason.None, Judge(5_363_500, "USB", 0, 0));
+        Assert.Equal(SixtyMeterReason.None, Judge(5_363_600, "USB", 0, 0));
+        Assert.Equal(SixtyMeterReason.None, Judge(5_330_500, "USB", 0, 0));    // a correct channel dial
+        Assert.Equal(SixtyMeterReason.None, Judge(5_346_500, "DIGU", 0, 0));
+        Assert.Equal(SixtyMeterReason.EmissionFilterAssumed, Judge(5_366_000, "USB", 0, 0));
+        Assert.Equal(SixtyMeterReason.EmissionFilterAssumed, Judge(5_357_000, "AM", 0, 0));   // 5.8 kHz wide
+        Assert.Equal(SixtyMeterReason.Emission, Judge(5_366_000, "USB", 100, 2900));         // reported: the filter's
+    }
+
+    // ---- repair round 1: a refusal never blames what was not measured ----
+
+    [Theory]
+    [InlineData(5_351_600UL)]
+    [InlineData(5_366_400UL)]
+    public void CW_is_150_hertz_wide_so_CW_just_inside_the_segment_is_admitted(ulong hz)
+    {
+        Assert.Equal(SixtyMeterReason.None, Judge(hz, "CW"));
+        Assert.Equal(SixtyMeterReason.None, Judge(hz, "CW", 0, 0));   // CW reads no filter
+    }
+
+    [Fact]
+    public void CW_whose_150_hertz_cross_the_segment_edge_is_refused_with_the_estimated_sentence()
+    {
+        Lexicon.Load(Lexicon.Partitions);
+        Assert.Equal(SixtyMeterReason.EmissionCwEstimated, Judge(5_351_550, "CW"));
+        Assert.Equal(SixtyMeterReason.EmissionCwEstimated, Judge(5_366_450, "CW"));
+        string said = new TransmitVerdict(LockoutReason.None, SixtyMeterReason.EmissionCwEstimated).RefusalSentence()!;
+        Assert.Equal(Lexicon.Get("audio.ptt.blocked_sixty_meter_cw_edge"), said);
+        Assert.DoesNotContain("transmit filter", said, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Only_a_reported_filter_is_blamed_and_an_assumed_one_says_it_was_assumed()
+    {
+        Lexicon.Load(Lexicon.Partitions);
+        // Reported, past Channel 1's lower edge (5330.5 to 5333.3): the filter sentence.
+        Assert.Equal(SixtyMeterReason.Emission, Judge(5_330_500, "USB", 0, 2800));
+        Assert.Equal(Lexicon.Get("audio.ptt.blocked_sixty_meter_emission"),
+            new TransmitVerdict(LockoutReason.None, SixtyMeterReason.Emission).RefusalSentence());
+        string assumed = new TransmitVerdict(LockoutReason.None, SixtyMeterReason.EmissionFilterAssumed).RefusalSentence()!;
+        Assert.Equal(Lexicon.Get("audio.ptt.blocked_sixty_meter_filter_assumed"), assumed);
+        Assert.DoesNotContain("your transmit filter", assumed, System.StringComparison.OrdinalIgnoreCase);
+        foreach (var key in new[] { "audio.ptt.blocked_sixty_meter_cw_edge", "audio.ptt.blocked_sixty_meter_filter_assumed" })
+            Assert.Contains(Lexicon.Get("settings.license.enforce_tx_rules_label"), Lexicon.Get(key));
     }
 
     // ---- elsewhere on 60 m, and off it ----
