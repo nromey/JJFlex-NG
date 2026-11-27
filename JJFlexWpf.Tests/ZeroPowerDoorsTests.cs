@@ -566,7 +566,13 @@ public sealed class ZeroPowerDoorsTests : IDisposable
         string menu = Source("JJFlexWpf", "NativeMenuBar.cs");
         Assert.Contains("if (Rig?.TxTune == false && ZeroPowerDoors.RefuseTunePress(Rig, \"the tune menu\", afterMenu: true)) return;", menu);
         // The Start tune item is also the stop for a carrier the tune key started in manual type, so its door asks only when neither the tuner latch nor our carrier is up.
-        Assert.Contains("if (Rig?.FlexTunerOn == false && Rig?.TuneAskedOrUp == false && ZeroPowerDoors.RefuseTunePress(Rig, \"the ATU menu\", afterMenu: true)) return;", menu);
+        // Repair round 2 of batch 31 changed this pin on purpose: where the press starts the ATU, the
+        // tuner's whole door is asked after the menu closes; otherwise RefuseTunePress, as before.
+        string flat = System.Text.RegularExpressions.Regex.Replace(menu, @"\s+", " ");
+        Assert.Contains("if (Rig?.FlexTunerOn == false && Rig?.TuneAskedOrUp == false && "
+            + "(Radios.TunePress.For(Rig.HasATU, Rig.FlexTunerType) == Radios.TunePressOutcome.AtuTune "
+            + "? ZeroPowerDoors.RefuseTunerStart(Rig, \"the ATU menu\", afterMenu: true) "
+            + ": ZeroPowerDoors.RefuseTunePress(Rig, \"the ATU menu\", afterMenu: true))) return;", flat);
     }
 
     // ── The sends ───────────────────────────────────────────────────────
