@@ -294,7 +294,9 @@ namespace Radios.Tests
             Run(c.Process, room);
             Assert.True(c.RoomFloor.HasFloor);
             // The raw room reads -40 dB per channel, so -37 dB as a channel-power sum; cleaned, 12 dB less.
-            Assert.InRange(c.RoomFloor.FloorDb, -49.6, -48.4);
+            // That is the room's average (#1349: the floor itself is the detector's higher reading of it).
+            Assert.InRange(c.RoomFloor.MeanFloorDb, -49.6, -48.4);
+            Assert.True(c.RoomFloor.FloorDb > c.RoomFloor.MeanFloorDb + 3, $"the detector reads the room over its average ({c.RoomFloor.FloorDb:F1} against {c.RoomFloor.MeanFloorDb:F1})");
         }
 
         [Theory]
@@ -352,8 +354,10 @@ namespace Radios.Tests
             c.RoomFloor.Learn();
             Run(c.Process, Stereo(Noise(-35, 4 * (int)Fs, 15)));
             Assert.Equal(before + 1, c.RoomFloor.LearnsFinished);
-            Assert.InRange(c.RoomFloor.LearnedDb, -32.6, -31.4); // -35 per channel is -32 as a sum
+            Assert.InRange(c.RoomFloor.LearnedMeanDb, -32.6, -31.4); // -35 per channel is -32 as a sum: the room's average
+            Assert.True(c.RoomFloor.LearnedDb > c.RoomFloor.LearnedMeanDb + 3, "the learned floor is the detector's reading, over the average (#1349)");
             Assert.InRange(c.RoomFloor.FloorDb, c.RoomFloor.LearnedDb - 0.1, c.RoomFloor.LearnedDb + 0.1); // tracking carries on from the learn
+            Assert.InRange(c.RoomFloor.MeanFloorDb, c.RoomFloor.LearnedMeanDb - 0.1, c.RoomFloor.LearnedMeanDb + 0.1);
         }
 
         [Fact]
@@ -367,7 +371,7 @@ namespace Radios.Tests
             keyed = false;
             Run(c.Process, Stereo(Noise(-50, 4 * (int)Fs, 17)));
             Assert.Equal(1, c.RoomFloor.LearnsFinished);
-            Assert.InRange(c.RoomFloor.LearnedDb, -47.6, -46.4);
+            Assert.InRange(c.RoomFloor.LearnedMeanDb, -47.6, -46.4);
         }
 
         [Fact]

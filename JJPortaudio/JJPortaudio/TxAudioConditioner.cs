@@ -547,6 +547,11 @@ namespace JJPortaudio
             Gate.RangeDb = live.RangeDb;
             if (live.HasThreshold) Gate.ThresholdDb = live.ThresholdDb;
             Gate.RatioToOne = live.RatioToOne;
+            // The room sits the margin under the threshold: where the ratio's
+            // knee is placed from (#1349), so a ratio turns the room down by a
+            // known amount. For a threshold set by hand the margin still says
+            // where the room is taken to be.
+            Gate.RoomBelowThresholdDb = live.ThresholdMarginDb;
             Gate.GateSetting = live.GateSetting;
             Gate.SideChainEnabled = live.SideChainEnabled;
             Gate.SideChainLowHz = live.SideChainLowHz;
@@ -670,6 +675,21 @@ namespace JJPortaudio
             if (t is float db) Gate.ThresholdDb = db;
             return t;
         }
+
+        /// <summary>
+        /// The same rule for a detector that AVERAGES, as WDSP's expander
+        /// (the expander's other mode) does: the margin in force over the
+        /// room's average level (<see cref="TxRoomFloor.MeanFloorDb"/>), not
+        /// over what this chain's detector reads (#1349). Null when the rule
+        /// gives nothing: a threshold set by hand, or no floor yet. Changes
+        /// nothing. The mean moves only on unkeyed buffers, so this holds
+        /// still while keyed as the rule does. Measured on 2026-11-26: WDSP's
+        /// expander fed a threshold 2.8 dB higher lost several times as much
+        /// of each word's start on speech in steady room noise, so its threshold
+        /// must not follow ours up.
+        /// </summary>
+        public float? AveragingDetectorThreshold() =>
+            TxRoomFloor.ThresholdRule(AutoThresholdInForce, false, RoomFloor.HasFloor, RoomFloor.MeanFloorDb, ThresholdMarginInForceDb);
 
         /// <summary>One over's statistics from the stages after the expander, taken and zeroed: samples past full scale after the equaliser, and the de-esser's frames reduced and its deepest reduction. Counted on keyed buffers only.</summary>
         public (long EqOverFullScale, long DeEsserReducedFrames, float DeEsserMaxReductionDb) TakeOverStats()

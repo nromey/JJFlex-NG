@@ -358,9 +358,14 @@ namespace JJFlexWpf
 
                 // 6 and 7. The floor the threshold comes from, and the threshold.
                 int delay = latency ?? 0;
-                var floorProfile = ChainAudition.Measure(Slice(noise, delay, Math.Max(0, rawMono.Length - delay)),
-                    Math.Max(0, rawMono.Length - delay), TxNoiseChain.SampleRate);
-                var (threshold, source, floor) = Threshold(gate, floorProfile, live);
+                var cleaned = Slice(noise, delay, Math.Max(0, rawMono.Length - delay));
+                var floorProfile = ChainAudition.Measure(cleaned, cleaned.Length, TxNoiseChain.SampleRate);
+                // #1349: JJ Flexible's expander sets its threshold over what its
+                // own detector reads on the room, which is above the room's
+                // average; the take's own room says by how much.
+                bool wdspModeHere = gate.Enabled && ExpanderModes.IsWdsp(gate.ExpanderMode);
+                float overAverage = wdspModeHere ? 0f : DetectorOverAverageDb(gate, cleaned);
+                var (threshold, source, floor) = Threshold(gate, floorProfile, live, overAverage);
 
                 // Phase 2: the expander in WDSP's mode runs in the helper, so it is
                 // NOT in the keyed in-process pass (a keyed bank latches dry on its
@@ -846,15 +851,43 @@ namespace JJFlexWpf
         /// the live figure in force when there is a radio, else the gate's inert
         /// default; by hand is the setup's figure.
         /// </summary>
+        /// <param name="detectorOverAverageDb">
+        /// How far over the take's average room level the expander's own
+        /// detector reads it (#1349; <see cref="DetectorOverAverageDb"/>), added
+        /// to a threshold worked out from the take: the live rule's margin is
+        /// over that reading. Zero for WDSP's mode, whose detector averages.
+        /// </param>
         internal static (float? Threshold, AuditionThresholdSource? Source, float? Floor) Threshold(
-            TxNoiseGateSetup gate, LufsMeter.LoudnessProfile floor, AuditionLiveState? live)
+            TxNoiseGateSetup gate, LufsMeter.LoudnessProfile floor, AuditionLiveState? live, float detectorOverAverageDb = 0f)
         {
             if (!gate.Enabled) return (null, null, null);
             if (!gate.AutoThreshold) return (gate.ThresholdDb, AuditionThresholdSource.SetByHand, null);
             var derived = TxAudioConditioning.DerivedThreshold(true, false, floor.IsValid, floor.NoiseFloorLufs, gate.ThresholdMarginDb);
-            if (derived is float d) return (d, AuditionThresholdSource.FromThisTake, floor.NoiseFloorLufs);
+            if (derived is float d) return (d + detectorOverAverageDb, AuditionThresholdSource.FromThisTake, floor.NoiseFloorLufs);
             if (live != null) return (live.Gate.ThresholdDb, AuditionThresholdSource.LiveFigure, null);
             return (TxNoiseGate.DefaultThresholdDb, AuditionThresholdSource.Default, null);
+        }
+
+        /// <summary>
+        /// How far over the room's average the expander's detector reads the
+        /// take's own room, dB (#1349): the live room meter
+        /// (<see cref="TxRoomFloor"/>), hearing through the expander's
+        /// side-chain filter as set, run over the cleaned take as unkeyed
+        /// audio; its floor (the detector's reading) less its mean floor. Zero
+        /// when the take is too short for a floor.
+        /// </summary>
+        internal static float DetectorOverAverageDb(TxNoiseGateSetup gate, float[] cleaned)
+        {
+            var room = new TxRoomFloor();
+            room.SetSideChain(gate.SideChainFilter, gate.SideChainLowCutHz, gate.SideChainHighCutHz);
+            var stereo = new float[BufferFrames * 2];
+            for (int at = 0; at + BufferFrames <= cleaned.Length; at += BufferFrames)
+            {
+                for (int f = 0; f < BufferFrames; f++) { stereo[2 * f] = cleaned[at + f]; stereo[2 * f + 1] = cleaned[at + f]; }
+                room.Process(stereo, stereo.Length, TxNoiseChain.SampleRate);
+            }
+            if (!room.HasFloor || !float.IsFinite(room.FloorDb) || !float.IsFinite(room.MeanFloorDb)) return 0f;
+            return Math.Max(0f, room.FloorDb - room.MeanFloorDb);
         }
 
         private static float[] Slice(float[] source, int from, int count)

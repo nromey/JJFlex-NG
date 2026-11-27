@@ -20,8 +20,22 @@ namespace JJPortaudio
     /// the raw microphone: a raw floor would sit well above the cleaned noise
     /// whenever noise reduction is on), and it hears through the same
     /// side-chain filter the detector does, on the detector's own scale (the
-    /// channel-power sum, in dB), so the threshold it sets is compared with
-    /// exactly what it measured.</para>
+    /// channel-power sum, in dB).</para>
+    /// <para><b>It reads the room with the expander's own detector (#1349).</b>
+    /// The floor is a high percentile (<see cref="ReadingPercentile"/>) of
+    /// the detector's envelope (<see cref="ExpanderDetector"/>, the same
+    /// definition the stage uses), sampled once a millisecond through each
+    /// 400 ms block, so "floor plus margin" is a margin over what the stage
+    /// will actually read on the room. It was the block's MEAN power until
+    /// #1349: the detector rides peaks, so on steady noise it read several dB
+    /// over that mean (measured about 7.7 dB on pink and on low rumble through
+    /// the side-chain filter), crossed the close point more often than every
+    /// hold time, and at the default margin of 8 dB the stage never closed at
+    /// any ratio. The percentile adapts to how peaky the room's noise is,
+    /// which a fixed margin cannot. The mean is still kept, tracked the same
+    /// way (<see cref="MeanFloorDb"/>), for a detector that AVERAGES, as
+    /// WDSP's expander does: its threshold stays a margin over the room's
+    /// average (<see cref="TxAudioConditioner.AveragingDetectorThreshold"/>).</para>
     /// <para><b>It learns only while the radio is NOT keyed</b> (S15: the
     /// threshold holds still while keyed, and speech would read as noise).
     /// The microphone runs while receiving (#565), so by the first over a
@@ -38,9 +52,10 @@ namespace JJPortaudio
     /// <para><b>"Learn the room"</b> (Noel's ruling, 2026-11-23 11:12):
     /// <see cref="Learn"/> collects the next <see cref="LearnSeconds"/> of
     /// unkeyed audio, sets the floor to its quiet level (the 20th percentile
-    /// of its blocks, so a cough does not decide it), and restarts the
-    /// tracking from there. Asked while keyed, it simply waits: keyed buffers
-    /// never reach it.</para>
+    /// of its blocks' readings, so a cough does not decide it; the mean
+    /// floor likewise from its blocks' means), and restarts the tracking from
+    /// there. Asked while keyed, it simply waits: keyed buffers never reach
+    /// it.</para>
     /// <para>Audio thread: <see cref="Process"/> only. No lock and no
     /// allocation there; every array is made here. System-only.</para>
     /// </remarks>
@@ -60,11 +75,21 @@ namespace JJPortaudio
         public const double LearnSeconds = 3.0;
         /// <summary>The percentile of the learn's blocks taken as the floor.</summary>
         public const double LearnPercentile = 0.20;
+        /// <summary>
+        /// The percentile of the detector's readings, through one 400 ms block,
+        /// taken as that block's level (#1349): high, so the floor sits at the
+        /// top of what the detector reads on the room. The 90th and the 95th
+        /// measured within a few tenths of a decibel of each other on steady
+        /// noise; 95 is the research's "high percentile".
+        /// </summary>
+        public const double ReadingPercentile = 0.95;
 
         private const int SubBlocksPerBlock = 4;              // 400 ms blocks
         private const int TrackBlocks = 80;                   // 8 s at one block per 100 ms
         private const int FirstFloorBlocks = 20;
         private const int LearnBlocks = 30;
+        // The detector's readings: one a millisecond, at most this many in a 100 ms sub-block (100 at any whole-kHz rate).
+        private const int MaxReadingsPerSub = 128;
 
         // Side-chain, as the detector hears it (set by the conditioner from the expander's settings).
         private volatile bool _sideChain;
@@ -81,28 +106,51 @@ namespace JJPortaudio
         private readonly double[] _sub = new double[SubBlocksPerBlock];
         private int _subAt, _subCount;
 
-        // Tracking.
+        // The detector's readings (#1349), per sub-block, and a scratch the block's percentile is sorted in.
+        private ExpanderDetector _detector;
+        private int _readEvery, _readCount;
+        private readonly double[] _readings = new double[SubBlocksPerBlock * MaxReadingsPerSub];
+        private readonly int[] _readingsIn = new int[SubBlocksPerBlock];
+        private readonly double[] _readingScratch = new double[SubBlocksPerBlock * MaxReadingsPerSub];
+
+        // Tracking: the detector's reading, and the mean beside it.
         private readonly double[] _track = new double[TrackBlocks];
+        private readonly double[] _trackMean = new double[TrackBlocks];
         private int _trackAt, _trackCount;
-        private double _floor = double.NaN;
+        private double _floor = double.NaN, _meanFloor = double.NaN;
 
         // Learning.
         private readonly double[] _learn = new double[LearnBlocks];
+        private readonly double[] _learnMean = new double[LearnBlocks];
         private int _learnCount;
         private volatile bool _learnAsked;
         private bool _learning;
         private long _learnsFinished;
         private volatile float _learnedDb = float.NaN;
+        private volatile float _learnedMeanDb = float.NaN;
 
         private volatile float _floorDb = float.NaN;
+        private volatile float _meanFloorDb = float.NaN;
         private volatile bool _hasFloor;
         private long _blocks;
 
         /// <summary>Whether a floor has been measured.</summary>
         public bool HasFloor => _hasFloor;
 
-        /// <summary>The floor, dB on the detector's scale; NaN before any measurement.</summary>
+        /// <summary>
+        /// The floor, dB on the detector's scale: what the expander's detector
+        /// reads on the room, at <see cref="ReadingPercentile"/> (#1349). NaN
+        /// before any measurement. The threshold rule adds the margin to this.
+        /// </summary>
         public float FloorDb => _floorDb;
+
+        /// <summary>
+        /// The room's average level, dB on the same scale (the channel-power
+        /// sum through the same filter), tracked the same way: what the floor
+        /// was before #1349, and what a detector that averages reads on the
+        /// room. NaN before any measurement. It sits under <see cref="FloorDb"/>.
+        /// </summary>
+        public float MeanFloorDb => _meanFloorDb;
 
         /// <summary>400 ms blocks measured since this meter was made. A test and trace counter.</summary>
         public long Blocks => Interlocked.Read(ref _blocks);
@@ -115,6 +163,9 @@ namespace JJPortaudio
 
         /// <summary>The floor the most recent finished learn found, dB; NaN before any.</summary>
         public float LearnedDb => _learnedDb;
+
+        /// <summary>The room's average level the most recent finished learn found, dB; NaN before any.</summary>
+        public float LearnedMeanDb => _learnedMeanDb;
 
         /// <summary>Hear through the side-chain filter, as the detector does. Set by the conditioner from the expander's settings in force.</summary>
         public void SetSideChain(bool on, float lowHz, float highHz)
@@ -141,13 +192,19 @@ namespace JJPortaudio
                 _forgetAsked = false;
                 _trackCount = 0; _trackAt = 0; _subCount = 0; _subAt = 0; _framesIn = 0; _sum = 0;
                 _floor = double.NaN; _floorDb = float.NaN; _hasFloor = false;
+                _meanFloor = double.NaN; _meanFloorDb = float.NaN;
                 _learning = false; _learnCount = 0;
+                ClearReadings();
+                _detector.Power = 0;
             }
             if (sampleRate != _rate)
             {
                 _rate = sampleRate;
                 _subFrames = Math.Max(1, (int)(sampleRate / 10));
+                _readEvery = Math.Max(1, (int)(sampleRate / 1000));
+                _detector.Design(sampleRate);
                 _framesIn = 0; _sum = 0; _subCount = 0; _subAt = 0;
+                ClearReadings();
             }
             bool sc = _sideChain;
             float lo = _scLowHz, hi = _scHighHz;
@@ -157,7 +214,7 @@ namespace JJPortaudio
                 // it, so the window restarts (the floor itself is kept until the
                 // new window says otherwise).
                 _filter.Design(lo, hi, sampleRate);
-                if (_designedRate != 0) { _trackCount = 0; _trackAt = 0; _subCount = 0; _subAt = 0; _framesIn = 0; _sum = 0; }
+                if (_designedRate != 0) { _trackCount = 0; _trackAt = 0; _subCount = 0; _subAt = 0; _framesIn = 0; _sum = 0; ClearReadings(); }
                 _designedOn = sc; _designedLow = lo; _designedHigh = hi; _designedRate = sampleRate;
             }
             if (_learnAsked)
@@ -167,6 +224,7 @@ namespace JJPortaudio
                 _learnCount = 0;
                 // Fresh: no block of the learn may hold audio from before it was asked.
                 _subCount = 0; _subAt = 0; _framesIn = 0; _sum = 0;
+                ClearReadings();
             }
 
             int frames = count / Channels;
@@ -179,7 +237,16 @@ namespace JJPortaudio
                     l = _filter.Step(0, l);
                     r = _filter.Step(1, r);
                 }
-                _sum += l * l + r * r;
+                double power = l * l + r * r;
+                _sum += power;
+                // The detector's reading, once a millisecond (#1349).
+                double reading = _detector.Step(power);
+                if (++_readCount >= _readEvery)
+                {
+                    _readCount = 0;
+                    int n = _readingsIn[_subAt];
+                    if (n < MaxReadingsPerSub) { _readings[_subAt * MaxReadingsPerSub + n] = reading; _readingsIn[_subAt] = n + 1; }
+                }
                 i += Channels;
                 if (++_framesIn < _subFrames) continue;
 
@@ -188,8 +255,16 @@ namespace JJPortaudio
                 if (_subCount < SubBlocksPerBlock) _subCount++;
                 _framesIn = 0; _sum = 0;
                 if (_subCount == SubBlocksPerBlock) Block();
+                // The sub-block now starting is the oldest: its readings go.
+                _readingsIn[_subAt] = 0;
             }
             if (sc) _filter.FlushTiny();
+        }
+
+        private void ClearReadings()
+        {
+            Array.Clear(_readingsIn, 0, _readingsIn.Length);
+            _readCount = 0;
         }
 
         /// <summary>A 400 ms block has completed (every 100 ms once the first has filled).</summary>
@@ -198,20 +273,37 @@ namespace JJPortaudio
             double mean = 0;
             for (int k = 0; k < SubBlocksPerBlock; k++) mean += _sub[k];
             mean /= SubBlocksPerBlock;
-            double db = 10.0 * Math.Log10(mean + 1e-12);
+            double meanDb = 10.0 * Math.Log10(mean + 1e-12);
+            // The block's reading: a high percentile of the detector through it.
+            int m = 0;
+            for (int k = 0; k < SubBlocksPerBlock; k++)
+                for (int j = 0; j < _readingsIn[k]; j++) _readingScratch[m++] = _readings[k * MaxReadingsPerSub + j];
+            double reading = mean;
+            if (m > 0)
+            {
+                Array.Sort(_readingScratch, 0, m); // in place; no allocation for a double[]
+                reading = _readingScratch[(int)Math.Round(ReadingPercentile * (m - 1))];
+            }
+            double db = 10.0 * Math.Log10(reading + 1e-12);
             Interlocked.Increment(ref _blocks);
 
             if (Volatile.Read(ref _learning))
             {
-                _learn[_learnCount++] = db;
+                _learn[_learnCount] = db;
+                _learnMean[_learnCount] = meanDb;
+                _learnCount++;
                 if (_learnCount == LearnBlocks)
                 {
+                    int at = (int)Math.Round(LearnPercentile * (LearnBlocks - 1));
                     Array.Sort(_learn, 0, LearnBlocks); // in place; no allocation for a double[]
-                    double learned = _learn[(int)Math.Round(LearnPercentile * (LearnBlocks - 1))];
+                    Array.Sort(_learnMean, 0, LearnBlocks);
+                    double learned = _learn[at], learnedMean = _learnMean[at];
                     _floor = learned;
+                    _meanFloor = learnedMean;
                     _trackCount = 0; _trackAt = 0;
                     Publish();
                     _learnedDb = (float)learned;
+                    _learnedMeanDb = (float)learnedMean;
                     Volatile.Write(ref _learning, false);
                     Interlocked.Increment(ref _learnsFinished);
                 }
@@ -219,28 +311,41 @@ namespace JJPortaudio
             }
 
             _track[_trackAt] = db;
+            _trackMean[_trackAt] = meanDb;
             _trackAt = (_trackAt + 1) % TrackBlocks;
             if (_trackCount < TrackBlocks) _trackCount++;
 
-            double target = double.MaxValue;
-            for (int k = 0; k < _trackCount; k++) if (_track[k] < target) target = _track[k];
+            double target = double.MaxValue, meanTarget = double.MaxValue;
+            for (int k = 0; k < _trackCount; k++)
+            {
+                if (_track[k] < target) target = _track[k];
+                if (_trackMean[k] < meanTarget) meanTarget = _trackMean[k];
+            }
 
             if (double.IsNaN(_floor))
             {
                 if (_trackCount < FirstFloorBlocks) return;
                 _floor = target;
+                _meanFloor = meanTarget;
             }
             else
             {
-                double tau = target < _floor ? FallSeconds : RiseSeconds;
-                _floor += (target - _floor) * (1.0 - Math.Exp(-0.1 / tau));
+                _floor = Follow(_floor, target);
+                _meanFloor = Follow(_meanFloor, meanTarget);
             }
             Publish();
+        }
+
+        private static double Follow(double floor, double target)
+        {
+            double tau = target < floor ? FallSeconds : RiseSeconds;
+            return floor + (target - floor) * (1.0 - Math.Exp(-0.1 / tau));
         }
 
         private void Publish()
         {
             _floorDb = (float)_floor;
+            _meanFloorDb = (float)_meanFloor;
             _hasFloor = true;
         }
 

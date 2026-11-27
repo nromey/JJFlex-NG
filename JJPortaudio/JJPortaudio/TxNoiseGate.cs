@@ -25,21 +25,26 @@ namespace JJPortaudio
     ///    most 40) — a natural floor that reads as "still here, not talking."
     ///
     /// The threshold is DERIVED, not a constant: the app measures the room's
-    /// noise floor and sets <see cref="ThresholdDb"/> to floor + 6..10 dB.
-    /// Until a floor has been measured the default threshold is deliberately
-    /// LOW (-60 dB): an unmeasured gate that does nothing is a far better
-    /// failure than one that eats speech. Since Sprint 49 Track I (#1252) the
-    /// floor is measured at THIS stage's input, after noise reduction, by
-    /// <see cref="TxRoomFloor"/>; before that it was measured after the gate,
-    /// which measured the gate's own effect and flipped from over to over.
+    /// noise floor and sets <see cref="ThresholdDb"/> to floor + margin (8 dB
+    /// by default). Until a floor has been measured the default threshold is
+    /// deliberately LOW (-60 dB): an unmeasured gate that does nothing is a
+    /// far better failure than one that eats speech. Since Sprint 49 Track I
+    /// (#1252) the floor is measured at THIS stage's input, after noise
+    /// reduction, by <see cref="TxRoomFloor"/>; before that it was measured
+    /// after the gate, which measured the gate's own effect and flipped from
+    /// over to over. Since #1349 that meter reads the room with this stage's
+    /// own detector (<see cref="ExpanderDetector"/>), taking a high
+    /// percentile, so the margin is a margin over what the detector really
+    /// reads on the room: measured as a mean, the floor sat several dB under
+    /// the detector's reading of the same noise, and at the default margin
+    /// the stage never closed.
     ///
-    /// Level model: the detector is an RMS-style envelope of the per-frame
-    /// channel-power sum, the same accounting BS.1770 uses — a -10 dBFS sine
-    /// duplicated on both channels reads -10 dB here and -10 LUFS on the
-    /// meter — so a threshold derived from a LUFS floor lands in the right
-    /// place without unit conversion. (K-weighting makes the two scales
-    /// differ by a couple of dB on real signals; the 6-10 dB margin absorbs
-    /// that.)
+    /// Level model: the detector (<see cref="ExpanderDetector"/>) is an
+    /// envelope of the per-frame channel-power sum, the same accounting
+    /// BS.1770 uses (a -10 dBFS sine duplicated on both channels has a power
+    /// sum of -10 dB). It rises in half a millisecond and falls in fifty, so
+    /// it rides a signal's peaks: about 2.8 dB over a steady tone's level, and
+    /// on steady noise several dB over its average.
     ///
     /// Thread model: Process runs on the PortAudio callback thread; property
     /// setters run on UI threads. All tunables are volatile floats read once
@@ -53,12 +58,20 @@ namespace JJPortaudio
     /// drive it are saved under the gate's names, and the operator meets ONE
     /// stage whose strongest setting is a gate (2026-11-23 11:32).</para>
     /// <list type="bullet">
-    /// <item><b>The ratio</b> (<see cref="RatioToOne"/>): below the point
-    /// where the decision closes (the threshold minus the 3 dB hysteresis),
-    /// the attenuation is (ratio - 1) times the distance below that point,
-    /// capped at <see cref="RangeDb"/>. Measured from the close point, so the
-    /// attenuation starts at zero at the moment the decision closes and there
-    /// is no step. 1:1 is no attenuation at all.</item>
+    /// <item><b>The ratio</b> (<see cref="RatioToOne"/>), while the decision
+    /// is closed: the attenuation is (ratio - 1) times the distance below a
+    /// knee, capped at <see cref="RangeDb"/>. Since #1349 the knee is placed
+    /// from the room (<see cref="RoomBelowThresholdDb"/>, the margin the
+    /// threshold was set with): depth / ratio over the room, so the room
+    /// itself is turned down by depth times (1 - 1/ratio), half the depth at
+    /// 2:1, and anything quieter by more, up to the depth. Before, the knee
+    /// was the close point, so the room (about 5 dB under it at the default
+    /// margin) could come down by at most 5 dB at 2:1 and the depth did
+    /// nothing: the amount was an accident of the margin. The knee can sit
+    /// above the close point, so the target can step when the decision
+    /// closes; the release fades it in, as it always has at the gate setting.
+    /// With no room known (the stage driven directly) the knee is the close
+    /// point, as before. 1:1 is no attenuation at all.</item>
     /// <item><b>The gate setting</b> (<see cref="GateSetting"/>): the fixed
     /// <see cref="RangeDb"/> attenuation whenever the decision is closed,
     /// which is the gate as it was before the conversion, sample for sample.
@@ -93,13 +106,8 @@ namespace JJPortaudio
         // A gap in Process calls longer than this means the input stream was
         // stopped (unkey) and restarted — reset, and reset OPEN.
         private const long StreamGapMs = 100;
-        // Detector time constants: fast rise so the gate can open on a word
-        // onset, moderate fall so it tracks speech level rather than the
-        // waveform inside a syllable.
-        private const float DetectorAttackSec = 0.0005f;
-        private const float DetectorReleaseSec = 0.050f;
 
-        /// <summary>How far below the threshold the decision closes, dB: the law's zero point is the threshold minus this.</summary>
+        /// <summary>How far below the threshold the decision closes, dB. With no room known (<see cref="RoomBelowThresholdDb"/>), the ratio's knee is the threshold minus this.</summary>
         public const float CloseBelowThresholdDb = HysteresisDb;
 
         private volatile bool _enabled;
@@ -159,7 +167,7 @@ namespace JJPortaudio
         private readonly SideChainFilter _sideChainFilter = new SideChainFilter();
 
         // --- Audio-thread state ---
-        private double _envPower;      // smoothed channel-power sum
+        private ExpanderDetector _detector;   // the smoothed channel-power sum
         private float _gain = 1f;      // current applied gain (linear)
         private int _holdRemaining;    // frames of hold left once below threshold
         private bool _open = true;
@@ -231,6 +239,22 @@ namespace JJPortaudio
         {
             get { return _ratio; }
             set { _ratio = float.IsFinite(value) ? Math.Clamp(value, MinRatioToOne, MaxRatioToOne) : DefaultRatioToOne; }
+        }
+
+        private volatile float _roomBelowThresholdDb = float.NaN;
+
+        /// <summary>
+        /// How far under the threshold the room sits, dB: the margin the
+        /// threshold was set with (#1349). The conditioner sets it from the
+        /// margin in force. It places the ratio's knee depth / ratio over the
+        /// room, so a ratio turns the room down by depth times (1 - 1/ratio)
+        /// (see class remarks). NaN, the default for this class used directly,
+        /// keeps the knee at the close point. Not used at the gate setting.
+        /// </summary>
+        public float RoomBelowThresholdDb
+        {
+            get { return _roomBelowThresholdDb; }
+            set { _roomBelowThresholdDb = float.IsFinite(value) ? Math.Clamp(value, 0f, 60f) : float.NaN; }
         }
 
         /// <summary>
@@ -368,7 +392,7 @@ namespace JJPortaudio
             if (reset || gap)
             {
                 Resets++;
-                _envPower = 0.0;
+                _detector.Power = 0.0;
                 _gain = 1f;
                 _open = true;
                 _holdRemaining = int.MaxValue; // re-armed below on first frame
@@ -385,11 +409,15 @@ namespace JJPortaudio
             int holdFrames = (int)(_holdMs * 0.001f * sampleRate);
             float attackCoeff = CoeffForMs(_attackMs, sampleRate);
             float releaseCoeff = CoeffForMs(_releaseMs, sampleRate);
-            float detAttack = CoeffForSec(DetectorAttackSec, sampleRate);
-            float detRelease = CoeffForSec(DetectorReleaseSec, sampleRate);
+            _detector.Design(sampleRate);
             bool gateSetting = _gateSetting;
-            double ratioLess1 = _ratio - 1.0;
+            double ratio = _ratio;
+            double ratioLess1 = ratio - 1.0;
             double rangeDb = _rangeDb;
+            // The ratio's knee (#1349): depth / ratio over the room, which sits
+            // the margin under the threshold; the close point when no room is known.
+            float roomBelow = _roomBelowThresholdDb;
+            double kneeDb = float.IsFinite(roomBelow) ? thresholdDb - roomBelow + rangeDb / Math.Max(1.0, ratio) : closeDb;
             bool sideChain = _sideChainEnabled;
             if (sideChain) _sideChainFilter.Design(_sideChainLowHz, _sideChainHighHz, sampleRate);
             int la = _lookAheadFrames;
@@ -414,10 +442,7 @@ namespace JJPortaudio
                     power = dl * dl + dr * dr;
                 }
                 else power = (double)l * l + (double)r * r;
-                double coeff = power > _envPower ? detAttack : detRelease;
-                _envPower += (power - _envPower) * coeff;
-
-                double envDb = 10.0 * Math.Log10(_envPower + 1e-12);
+                double envDb = 10.0 * Math.Log10(_detector.Step(power) + 1e-12);
 
                 // Open/hold/close decision with hysteresis.
                 if (envDb > (_open ? closeDb : thresholdDb))
@@ -441,10 +466,9 @@ namespace JJPortaudio
                 else if (gateSetting) target = rangeGain;
                 else
                 {
-                    // The expander's law, measured from the close point: zero
-                    // attenuation where the decision closes, rising by
-                    // (ratio - 1) dB per dB below it, never past the depth.
-                    double attDb = Math.Min(rangeDb, ratioLess1 * (closeDb - envDb));
+                    // The expander's law: (ratio - 1) dB per dB below the knee,
+                    // never past the depth (see class remarks for the knee).
+                    double attDb = Math.Min(rangeDb, ratioLess1 * (kneeDb - envDb));
                     target = attDb <= 0.0 ? 1f : (float)Math.Exp(-attDb * DbToNeper);
                 }
 
@@ -490,10 +514,50 @@ namespace JJPortaudio
 
         /// <summary>One-pole coefficient reaching ~63% of a step in the given
         /// time at the given rate.</summary>
-        private static float CoeffForSec(float sec, uint sampleRate)
+        internal static float CoeffForSec(float sec, uint sampleRate)
         {
             if (sec <= 0f) return 1f;
             return 1f - (float)Math.Exp(-1.0 / (sec * sampleRate));
+        }
+    }
+
+    /// <summary>
+    /// The expander's detector: a power envelope of the per-frame
+    /// channel-power sum that rises in half a millisecond and falls in fifty
+    /// (fast rise so the stage can open on a word onset, moderate fall so it
+    /// tracks speech level rather than the waveform inside a syllable). ONE
+    /// definition, used by <see cref="TxNoiseGate"/> and by the room's meter
+    /// (<see cref="TxRoomFloor"/>, #1349), so the floor the threshold is set
+    /// from is read on exactly what the stage compares with the threshold.
+    /// The coefficients are floats, as the gate always had them, so the gate
+    /// setting stays the old gate sample for sample (S7).
+    /// </summary>
+    internal struct ExpanderDetector
+    {
+        /// <summary>The rise and fall time constants, seconds.</summary>
+        internal const float AttackSec = 0.0005f, ReleaseSec = 0.050f;
+
+        private float _attack, _release;
+        private uint _rate;
+
+        /// <summary>The smoothed channel-power sum.</summary>
+        public double Power;
+
+        /// <summary>Set the coefficients for a rate (two exponentials when it changes; nothing otherwise).</summary>
+        public void Design(uint sampleRate)
+        {
+            if (sampleRate == _rate) return;
+            _rate = sampleRate;
+            _attack = TxNoiseGate.CoeffForSec(AttackSec, sampleRate);
+            _release = TxNoiseGate.CoeffForSec(ReleaseSec, sampleRate);
+        }
+
+        /// <summary>One frame's channel-power sum in; the smoothed power out.</summary>
+        public double Step(double power)
+        {
+            double coeff = power > Power ? _attack : _release;
+            Power += (power - Power) * coeff;
+            return Power;
         }
     }
 }

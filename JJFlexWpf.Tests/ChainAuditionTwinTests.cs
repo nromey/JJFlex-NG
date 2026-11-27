@@ -308,7 +308,11 @@ public sealed class ChainAuditionTwinTests
         var floor = ChainAudition.Measure(take, take.Length, Rate);
         Assert.True(floor.IsValid);
         Assert.Equal(floor.NoiseFloorLufs, r.ThresholdFloorLufs!.Value, 3);
-        Assert.Equal(floor.NoiseFloorLufs + 8f, r.ThresholdDb!.Value, 3);
+        // #1349: plus how far over the take's average room the expander's own
+        // detector reads it, as the live rule's floor is that reading.
+        float over = ChainAuditionTwin.DetectorOverAverageDb(setup.Gate, take);
+        Assert.True(over > 3, $"the detector reads the take's room {over:F1} dB over its average");
+        Assert.Equal(floor.NoiseFloorLufs + 8f + over, r.ThresholdDb!.Value, 3);
 
         var result = ChainAudition.Analyse(take, Rate, twin);
         string v = ChainAudition.Verdict(result);

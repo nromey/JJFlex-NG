@@ -101,7 +101,11 @@ public sealed class TxSoundStagesTests
         for (int i = 2; i < news.Count; i++) Assert.InRange(news[i], news[i - 1] - 0.3, news[i - 1] + 0.3);
         // The positive control: it settled on the room, not on the inert default.
         double roomSum = roomDb + 10 * Math.Log10(2); // the detector's channel-power sum of a mono room on both channels
-        Assert.InRange(news[^1], roomSum + margin - 1, roomSum + margin + 1);
+        // #1349: the floor the rule adds the margin to is the expander's detector's
+        // reading of that room, over its average; the average is still the room's.
+        Assert.InRange(live.RoomFloor.MeanFloorDb, roomSum - 1, roomSum + 1);
+        Assert.True(live.RoomFloor.FloorDb > live.RoomFloor.MeanFloorDb + 3);
+        Assert.Equal(live.RoomFloor.FloorDb + margin, news[^1], 3);
         Assert.NotEqual(TxNoiseGate.DefaultThresholdDb, news[^1]);
     }
 
@@ -145,7 +149,10 @@ public sealed class TxSoundStagesTests
             TxAudioConditioning.FinishLearnIfDone(x.Cond, keyed: false);
             Assert.NotNull(said);
             float floor = x.Cond.RoomFloor.LearnedDb;
-            Assert.InRange(floor, -42.6, -41.4); // -45 per channel, -42 as a channel-power sum
+            // -45 per channel, -42 as a channel-power sum: the room's average. The floor a
+            // learn sets is the expander's detector's reading of it, higher (#1349).
+            Assert.InRange(x.Cond.RoomFloor.LearnedMeanDb, -42.6, -41.4);
+            Assert.True(floor > x.Cond.RoomFloor.LearnedMeanDb + 3);
             Assert.Equal(floor + 9, said!.ThresholdDb, 1);
             Assert.Equal(floor + 9, x.Cond.Gate.ThresholdDb, 1);
             Assert.Equal(auto, said.AutomaticThreshold);

@@ -1058,7 +1058,10 @@ namespace JJFlexWpf
                 lock (_gate) g = _gateIntent.Clone();
                 var wdsp = Wdsp;
                 wdsp.WantWdsp(ExpanderModes.IsWdsp(g.ExpanderMode));
-                wdsp.Update(g, cond?.Gate.ThresholdDb ?? g.ThresholdDb, keyed);
+                // #1349: an automatic threshold reaches WDSP's expander as the
+                // margin over the room's AVERAGE, which is what its averaging
+                // detector reads, never over our detector's higher reading.
+                wdsp.Update(g, cond?.AveragingDetectorThreshold() ?? cond?.Gate.ThresholdDb ?? g.ThresholdDb, keyed);
             }
             catch (Exception ex)
             {
@@ -1319,13 +1322,19 @@ namespace JJFlexWpf
             long baseline = System.Threading.Interlocked.Read(ref _learnBaseline);
             if (baseline < 0 || cond.RoomFloor.LearnsFinished <= baseline) return;
             System.Threading.Interlocked.Exchange(ref _learnBaseline, -1);
-            float floor = cond.RoomFloor.LearnedDb;
+            // #1349: the floor JJ Flexible's expander sets its threshold from is
+            // its own detector's reading of the room; WDSP's expander averages,
+            // so its threshold is set over the room's average. A threshold set
+            // by hand from a learn is set for the mode in force.
+            bool wdsp;
+            lock (_gate) wdsp = ExpanderModes.IsWdsp(_gateIntent.ExpanderMode);
+            float floor = wdsp ? cond.RoomFloor.LearnedMeanDb : cond.RoomFloor.LearnedDb;
             bool auto = cond.AutoThresholdInForce;
             float margin = cond.ThresholdMarginInForceDb;
             float threshold = JJPortaudio.TxRoomFloor.ThresholdRule(true, false, true, floor, margin) ?? JJPortaudio.TxNoiseGate.DefaultThresholdDb;
             if (auto) cond.RefreshDerivedThreshold(false);
             else GateThresholdDb = threshold;
-            threshold = cond.Gate.ThresholdDb;
+            threshold = auto && wdsp ? cond.AveragingDetectorThreshold() ?? cond.Gate.ThresholdDb : cond.Gate.ThresholdDb;
             Trace.WriteLine(FormattableString.Invariant(
                 $"TxAudioConditioning: the room was learned: floor {floor:F1} dB at the expander's input; threshold {threshold:F1} dB ({(auto ? "automatic, tracking carries on from here" : "set by hand from the learn, holds until the next learn or a change by hand")})"));
             RoomLearned?.Invoke(new RoomLearnedResult(floor, threshold, auto));
