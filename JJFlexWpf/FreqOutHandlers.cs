@@ -4496,9 +4496,17 @@ public class FreqOutHandlers
         TransmitSliceReading? reading;
         try
         {
-            reading = rig.TransmitSliceSignal();
+            int selectedLow, selectedHigh;
+            if (TransmitReadingForTests is { } supplied)
+                (reading, selectedLow, selectedHigh) = supplied();
+            else
+            {
+                reading = rig.TransmitSliceSignal();
+                selectedLow = rig.FilterLow;
+                selectedHigh = rig.FilterHigh;
+            }
             if (license.TxLockout) JudgedLicenseClass();   // traces a stored "none" judged as Extra, once
-            verdict = TransmitRules.Judge(license, reading, getRx(), rig.FilterLow, rig.FilterHigh, sixtyMeterRule,
+            verdict = TransmitRules.Judge(license, reading, getRx(), selectedLow, selectedHigh, sixtyMeterRule,
                 out judgedSelected, out modeUnrecognised, out rttyLetThrough);
         }
         catch (Exception ex)
@@ -4531,6 +4539,17 @@ public class FreqOutHandlers
                 TraceLevel.Info);
         return verdict;
     }
+
+    /// <summary>
+    /// TEST-ONLY: supplies the transmit slice's reading and the selected slice's
+    /// filter edges in place of the radio's, so a windowless test can drive
+    /// <see cref="JudgeTransmitHere"/> itself (repair round 1 of junk box batch 31:
+    /// no test reached this gate, and restoring its old lockout-only early return
+    /// switched the 60 m rule off in the app with every test green). A radio object
+    /// built for a test has no slices to read. Set by nothing but tests; null in the
+    /// app, where the radio is read.
+    /// </summary>
+    internal Func<(TransmitSliceReading? Reading, int SelectedLow, int SelectedHigh)>? TransmitReadingForTests { get; set; }
 
     private bool _rttyLetThroughTraced;
 
