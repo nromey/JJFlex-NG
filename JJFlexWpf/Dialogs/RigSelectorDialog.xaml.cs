@@ -2177,9 +2177,11 @@ namespace JJFlexWpf.Dialogs
                 // something the user still cares about. It reads as not heard
                 // from and refuses to connect, which is what the ghost sweep
                 // was for. A radio that had a local home is remembered as
-                // local, even if SmartLink also listed it — "press Remote to
-                // look again" is useless advice for a rig that was sitting on
-                // the same LAN.
+                // local, even if SmartLink also listed it: the row's
+                // "last seen" sentence names the path it was last seen on,
+                // and the connect chain falls back on it (ConnectPathPolicy),
+                // so a rig that was sitting on the same LAN must not read as
+                // remote.
                 row.LastSeenRemote = hadWan && !hadLan;
                 row.LastSeenText = Lexicon.Get("connect.selector.last_seen_just_now");
                 row.FromAccountCache = false;

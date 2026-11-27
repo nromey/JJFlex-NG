@@ -2120,6 +2120,23 @@ namespace Radios.Tests
                 "settings.profile.report_saved_loaded",
                 "settings.restore_export.saved_loaded",
                 "settings.restore_export.saved_nothing_moved",
+                // Junk box batch 29 (#1292): the finished sentences when a kind
+                // the walk moved was not put back name the kind and the profile
+                // (Noel 2026-11-24, "select your Default transmit profile").
+                // Same classification and reasoning as above: spoken only as
+                // the delayed answer to the operator's own press. DRAFT, for
+                // Codex; the kind_ entries are fragments never spoken alone.
+                "settings.restore_export.saved_not_put_back",
+                "settings.profile.report_saved_not_put_back",
+                "settings.restore_export.not_put_back.select",
+                "settings.restore_export.not_put_back.global_none",
+                "settings.restore_export.not_put_back.global_none_unknown",
+                "settings.restore_export.not_put_back.none_now_on",
+                "settings.restore_export.not_put_back.unknown_now_on",
+                "settings.restore_export.not_put_back.unknown",
+                "settings.restore_export.not_put_back.kind_global",
+                "settings.restore_export.not_put_back.kind_tx",
+                "settings.restore_export.not_put_back.kind_mic",
 
                 // Same track, follow-up (Noel 07:55, 08:09): the answers to the
                 // Radio menu's Switch Mic Input Back to PC, and the action
@@ -2672,6 +2689,13 @@ namespace Radios.Tests
                 "connect.home.frequency_both",
                 "connect.home.frequency_selected",
                 "connect.home.frequency_transmit",
+                // Junk box batch 29 (#564): Home's status line and power field
+                // say what is known about why the radio stopped reading as on,
+                // shown text only. DRAFT prose.
+                "connect.home.status_disconnected",
+                "connect.home.status_not_responding",
+                "connect.home.status_field_power_off",
+                "connect.home.status_field_power_unknown",
                 "settings.speech.frequency_key_both",
                 "settings.speech.frequency_key_help",
                 "settings.speech.frequency_key_label",
@@ -2760,6 +2784,10 @@ namespace Radios.Tests
                 "audio.fields.rf_preamp",
                 "audio.fields.rf_preamp_on",
                 "audio.fields.rf_preamp_off",
+                // Junk box batch 29 (#1291): RF Gain Up or Down before the
+                // panadapter has reported its range steps nothing and says so,
+                // in answer to the operator's own menu press. DRAFT prose.
+                "audio.fields.rf_gain_range_asked",
                 // Junk box 2026-11-06 integration (#747): the unit travels
                 // with the width from the shared formatter, so Home's receive
                 // filter field is one string (it was a Hz and a kHz pair) and
@@ -3281,7 +3309,10 @@ namespace Radios.Tests
             // way_in.not_set, settings.network.test_punched_declined, settings.radio.
             // check.punched_declined, settings.profile.mode_automatic) and removed
             // connect.connecting.phase_slice_wait, which had no caller.
-            Assert.Equal(3023, unclassified);
+            // Three fewer (3023 to 3020): junk box batch 29 (#990) removed
+            // audio.check.line_transmitting, audio.fields.atu_mode_none and
+            // settings.atu.mode, which nothing called.
+            Assert.Equal(3020, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

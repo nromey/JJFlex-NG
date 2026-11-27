@@ -831,6 +831,101 @@ namespace Radios
         }
 
         /// <summary>
+        /// One kind the walk moved and could not put back, with the names the
+        /// spoken sentence needs (#1292, Noel 2026-11-24: "be specific, name
+        /// the type and the profile"). Carried out of the walk outcome, not
+        /// re-derived: <see cref="Before"/> is the selection recorded before
+        /// the first load, and <see cref="LastLoaded"/> the last profile the
+        /// walk loaded for this kind. A request that was never read back as
+        /// loaded is not carried, because it is never spoken (#469 round
+        /// four).
+        /// </summary>
+        /// <remarks>Repair round 1: "loaded" is <see cref="ProfileLoadResult.QueuedAndSettled"/>,
+        /// FlexLib's own field read back and the state settled, which
+        /// <see cref="LoadProfileAndWait"/> documents as still not the radio's
+        /// own report. So the sentences say what JJ Flexible last loaded, never
+        /// where the radio is, and with nothing loaded they say it is not
+        /// known rather than assume a load happened (every load can be
+        /// refused before dispatch, as when Protect this radio's setup is
+        /// turned on after the walk was planned).</remarks>
+        public sealed class NotPutBackItem
+        {
+            public ProfileTypes Kind;
+            /// <summary>The selection in use before the walk; empty when none
+            /// was selected, null when it could not be read.</summary>
+            public string Before;
+            /// <summary>The last profile of this kind the walk loaded (read back
+            /// from FlexLib's field, not the radio's own report); null when none
+            /// was: every load refused or unconfirmed, or a kind only a global
+            /// load moved.</summary>
+            public string LastLoaded;
+        }
+
+        /// <summary>
+        /// <see cref="KindsNotPutBack"/>, with each kind's names (#1292). The
+        /// same outcomes, in the same order, so the two lists always agree.
+        /// </summary>
+        internal static List<NotPutBackItem> NotPutBackItems(IEnumerable<ProfileWalkOutcome> outcomes)
+            => outcomes
+                .Where(o => o != null && KindsNotPutBack(new[] { o }).Any())
+                .Select(o => new NotPutBackItem { Kind = o.ProfileType, Before = o.OriginalSelection, LastLoaded = o.LastLoaded })
+                .ToList();
+
+        /// <summary>The kind as the spoken "not put back" sentences name it
+        /// (#1292): "transmit", not the files' "TX". DRAFT, for Codex.</summary>
+        private static string SpokenKind(ProfileTypes kind) => kind switch
+        {
+            ProfileTypes.global => Lexicon.Get("settings.restore_export.not_put_back.kind_global"),
+            ProfileTypes.tx => Lexicon.Get("settings.restore_export.not_put_back.kind_tx"),
+            _ => Lexicon.Get("settings.restore_export.not_put_back.kind_mic"),
+        };
+
+        /// <summary>
+        /// The spoken sentence for one kind not put back (#1292). DRAFT words,
+        /// for Codex. Noel's shape, 2026-11-24: "select your Default transmit
+        /// profile", saying where (Profiles, in the Radio menu).
+        /// <list type="bullet">
+        /// <item>A recorded profile that was not put back: name it and its kind,
+        /// and where to select it.</item>
+        /// <item>Global, none before: no command clears a global selection
+        /// (measured on the 8600 for global only), and the last global profile
+        /// JJ Flexible loaded, if any; with none loaded, that it is not known
+        /// whether one is selected now, and where to check.</item>
+        /// <item>TX or mic, none before: the last profile of that kind JJ
+        /// Flexible loaded, claiming nothing about clearing.</item>
+        /// <item>Never where the radio IS: a load read back from FlexLib's
+        /// field is not the radio's own report (repair round 1).</item>
+        /// <item>Nothing recorded before: say so, and where to check.</item>
+        /// </list>
+        /// </summary>
+        internal static string NotPutBackSpokenItem(NotPutBackItem item)
+        {
+            string kind = SpokenKind(item.Kind);
+            if (!string.IsNullOrEmpty(item.Before))
+                return Lexicon.Get("settings.restore_export.not_put_back.select",
+                    ("kind", kind), ("name", item.Before));
+            if (item.Before == null)
+                return item.LastLoaded != null
+                    ? Lexicon.Get("settings.restore_export.not_put_back.unknown_now_on",
+                        ("kind", kind), ("name", item.LastLoaded))
+                    : Lexicon.Get("settings.restore_export.not_put_back.unknown", ("kind", kind));
+            if (item.Kind == ProfileTypes.global)
+                return item.LastLoaded != null
+                    ? Lexicon.Get("settings.restore_export.not_put_back.global_none", ("name", item.LastLoaded))
+                    : Lexicon.Get("settings.restore_export.not_put_back.global_none_unknown");
+            return item.LastLoaded != null
+                ? Lexicon.Get("settings.restore_export.not_put_back.none_now_on", ("kind", kind), ("name", item.LastLoaded))
+                : Lexicon.Get("settings.restore_export.not_put_back.unknown", ("kind", kind));
+        }
+
+        /// <summary>Every kind not put back, one sentence each, in walk order;
+        /// null when there is none, so the caller keeps today's sentence.</summary>
+        internal static string NotPutBackSpoken(IReadOnlyList<NotPutBackItem> items)
+            => items == null || items.Count == 0
+                ? null
+                : string.Join(" ", items.Select(NotPutBackSpokenItem));
+
+        /// <summary>
         /// The walk itself, reaching the radio only through the two
         /// functions passed in, so a test can drive every path — a load that
         /// fails, a key-up before a load, a key-up after the last one, a
@@ -1380,10 +1475,12 @@ namespace Radios
             public bool AnyLoadRequested;
 
             /// <summary>The kinds the walk moved and could not put back
-            /// (#1292), as <see cref="RestoreGradeExport.NotPutBack"/>. The
-            /// finished sentence is to say these; its words wait on a Lexicon
-            /// key.</summary>
+            /// (#1292), as <see cref="RestoreGradeExport.NotPutBack"/>.</summary>
             public List<ProfileTypes> NotPutBack = new List<ProfileTypes>();
+
+            /// <summary><see cref="NotPutBack"/> with each kind's names, which
+            /// the finished sentence speaks (#1292).</summary>
+            public List<NotPutBackItem> NotPutBackItems = new List<NotPutBackItem>();
         }
 
         /// <summary>The sentence for a refused run, true to why it refused.</summary>
@@ -1406,6 +1503,12 @@ namespace Radios
             {
                 if (!report.AnyLoadRequested)
                     return Lexicon.Get("settings.profile.report_saved", ("path", path));
+                // #1292: name each kind not put back, and the profile to
+                // select; with none, today's sentence.
+                string notBack = NotPutBackSpoken(report.NotPutBackItems);
+                if (notBack != null)
+                    return Lexicon.Get("settings.profile.report_saved_not_put_back",
+                        ("path", path), ("not_put_back", notBack));
                 return Lexicon.Get("settings.profile.report_saved_loaded", ("path", path));
             }
             return Lexicon.Get("settings.profile.report_saved_stopped", ("path", path));
@@ -1676,6 +1779,7 @@ namespace Radios
                 // #1292: what the walk moved and could not put back, said plainly.
                 AppendComparisonNotPutBack(sb, outcomes);
                 result.NotPutBack = KindsNotPutBack(outcomes);
+                result.NotPutBackItems = NotPutBackItems(outcomes);
             }
 
             // Meter enumeration. Instant, so nothing is spoken for it: the
@@ -2619,9 +2723,12 @@ namespace Radios
             /// (#1292), from <see cref="KindsNotPutBack"/>: on the 8600, the
             /// global selection, which was none before and which no radio
             /// command clears. Empty when everything moved had a put-back
-            /// requested. The finished sentence is to say these plainly; its
-            /// words wait on a Lexicon key (see the batch report).</summary>
+            /// requested.</summary>
             public List<ProfileTypes> NotPutBack = new List<ProfileTypes>();
+
+            /// <summary><see cref="NotPutBack"/> with each kind's names, which
+            /// the finished sentence speaks (#1292).</summary>
+            public List<NotPutBackItem> NotPutBackItems = new List<NotPutBackItem>();
         }
 
         private static int _walkInFlight;
@@ -2752,7 +2859,15 @@ namespace Radios
             else if (!export.AnyLoadRequested)
                 key = "settings.restore_export.saved_nothing_moved";
             else
+            {
+                // #1292: name each kind not put back, and the profile to
+                // select; with none, today's sentence.
+                string notBack = NotPutBackSpoken(export.NotPutBackItems);
+                if (notBack != null)
+                    return Lexicon.Get("settings.restore_export.saved_not_put_back",
+                        ("path", path), ("not_put_back", notBack));
                 key = "settings.restore_export.saved_loaded";
+            }
             return Lexicon.Get(key, ("path", path));
         }
 
@@ -3054,6 +3169,7 @@ namespace Radios
                         sb.AppendLine(TypeLabel(o.ProfileType) + " profile not put back = " + notBack);
                 }
                 result.NotPutBack = KindsNotPutBack(outcomes);
+                result.NotPutBackItems = NotPutBackItems(outcomes);
             }
             sb.AppendLine();
             sb.AppendLine("End of capture.");

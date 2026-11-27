@@ -1,0 +1,1 @@
+- Country lookups in Station Lookup and the log now work when JJ Flexible Radio Access starts from a shortcut whose "Start in" setting names a different folder.

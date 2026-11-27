@@ -2102,6 +2102,15 @@ public class NativeMenuBar : IDisposable
         // One report, and the panadapter it belongs to, for both the decision
         // and the write (repair round 2).
         var report = Rig.ActiveRFGainReport;
+        // #1291: a panadapter that has not reported its range would be stepped
+        // by the defaults, which the radio may refuse (the 8600 said 18 while
+        // holding 8). Ask for the range, step nothing, and say so.
+        if (report.Pan != null && !Rig.HasRFGainReport(report.Pan))
+        {
+            Rig.RequestRFGainRange(report.Pan, "RF Gain " + (up ? "Up" : "Down") + " before a report");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("audio.fields.rf_gain_range_asked"));
+            return;
+        }
         if (FlexBase.IsPreampSwitch(report, out int onDb))
         {
             int value = up ? onDb : 0;
@@ -3150,7 +3159,11 @@ public class NativeMenuBar : IDisposable
                             // answer to a press made a minute ago, the only way
                             // back to the file, and — when any profile load was
                             // requested — the pointer to reload your own
-                            // profile. It never says where the radio was left.
+                            // profile. When a profile was not put back it names
+                            // the kind, the profile to select and what JJ
+                            // Flexible last loaded (#1292), never where the
+                            // radio IS: a load read back from FlexLib is not
+                            // the radio's own report.
                             Radios.ScreenReaderOutput.Speak(
                                 ProfileReporter.ComparisonFinishedSentence(report, path),
                                 Radios.VerbosityLevel.Critical, interrupt: true);

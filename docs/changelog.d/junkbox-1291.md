@@ -1,0 +1,1 @@
+- The Slice menu's RF Gain Up and RF Gain Down commands now leave the gain unchanged and ask you to try again when the radio's RF gain steps are not yet available.

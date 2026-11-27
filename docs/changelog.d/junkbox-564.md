@@ -1,0 +1,1 @@
+- Home's status line now distinguishes a disconnect from an unavailable radio status instead of calling both "power off". Profile imports and confirmed restarts keep their existing power-off message.

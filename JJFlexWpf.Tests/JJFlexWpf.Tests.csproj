@@ -34,9 +34,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The country prefix file (#907). CountriesDB opens it by bare name, so
-         from the working directory, which is this folder under dotnet test;
-         the app gets it the same way, from JJFlexRadio.vbproj's Content item.
+    <!-- The country prefix file (#907). CountriesDB reads it beside the app's
+         assembly (AppContext.BaseDirectory, which is this folder here), and the
+         working directory only as a fallback (#1298); the app gets its copy
+         from JJFlexRadio.vbproj's Content item.
          Without it StationLookupWindow's Loaded handler threw and, before
          the sweep contained that, ended the whole test host. -->
     <None Include="..\cty_wt.dat" Link="cty_wt.dat" CopyToOutputDirectory="PreserveNewest" />

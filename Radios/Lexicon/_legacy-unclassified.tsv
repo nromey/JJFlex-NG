@@ -313,7 +313,6 @@ audio.check.elapsed_one_minute	420a257bcefae4e7
 audio.check.ended	e965ca133d42f4cd
 audio.check.escape_stops	012612b1aa3ee5ce
 audio.check.line_dummy_load	8706447807ddb4b2
-audio.check.line_transmitting	b0d345fe5203cdd3
 audio.check.loopback_drive_reduced	2098d48f2d00981d
 audio.check.loopback_ended	beccba80f57ac361
 audio.check.loopback_honesty	bfe5504871ae61a3
@@ -468,7 +467,6 @@ audio.fields.atu	c3bbc3a7a2e28c7a
 audio.fields.atu_mode	59ed58d9a98dfe3c
 audio.fields.atu_mode_auto	ab5038eb19bf343f
 audio.fields.atu_mode_manual	176ebb1c46589f5b
-audio.fields.atu_mode_none	2d4ff8a83b1b5c4a
 audio.fields.binaural	54891362911f2be5
 audio.fields.binaural_help	07d9b94da6a2c785
 audio.fields.cancel_noise_button	beb478bfd3f75fbe
@@ -2081,7 +2079,6 @@ settings.associations.will_connect_as	5cc2fae8cad0adde
 settings.atu.available_reopen	202b841855d921f6
 settings.atu.memories_cleared	0a1744efb4942853
 settings.atu.memories_unavailable	7020cc5f64839273
-settings.atu.mode	9d93f9c18d726884
 settings.atu.none_on_radio	4515d31828cb2b30
 settings.atu.turned_off	3e39a8042a8027f1
 settings.atu.turned_on	63779a94a73fe918

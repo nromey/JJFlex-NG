@@ -1,0 +1,1 @@
+- Frequency changes no longer trigger an "ATU bypassed" announcement when the automatic antenna tuner (ATU) has no stored match or the stored match uses bypass. The ATU stays enabled during these frequency changes.

@@ -1,0 +1,1 @@
+- The Tools menu's "Full restore capture, loads every profile" and "Profile comparison report, loads each one" now name a starting profile that was not put back when the starting name is known.
