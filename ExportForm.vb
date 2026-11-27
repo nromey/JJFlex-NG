@@ -177,18 +177,14 @@ checkExit:
                 Dim value As String = fld.Data
                 Select Case fld.ADIFTag
                     Case AdifTags.ADIF_Band
-                        ' ADIF's own band name for the QSO's frequency, so an
-                        ' entry logged under a label ADIF does not define (35cm)
-                        ' exports a value ADIF knows. Left as logged when the
-                        ' frequency is missing or gives no ADIF band, so a
-                        ' frequency written in another form never loses a band
-                        ' the entry had. Not written back into the entry (repair
-                        ' round 1 of junk box batch 31).
-                        Dim freqText As String = session.GetFieldText(AdifTags.ADIF_RXFreq)
-                        If freqText <> vbNullString Then
-                            Dim adifBand As String = HamBands.Bands.AdifBand(FreqInt64(freqText))
-                            If adifBand <> "" Then value = adifBand
-                        End If
+                        ' The contact's band key, the one duplicate checking uses
+                        ' (repair round 2 of junk box batch 31): the logged band,
+                        ' with a label ADIF does not define (35cm) given ADIF's
+                        ' name, and an empty one derived from the transmit
+                        ' frequency, else the receive one. Never replaced by the
+                        ' receive band, so a cross-band contact keeps its band.
+                        ' Not written back into the entry.
+                        value = LogDupChecking.BandKey(session)
                     Case AdifTags.ADIF_RXFreq, AdifTags.ADIF_TXFreq
                         ' Frequencies' formats are a little different.
                         fld.Data = formatADIFFreq(fld.Data)

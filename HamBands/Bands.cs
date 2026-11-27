@@ -498,6 +498,57 @@ namespace HamBands
             return "";
         }
 
+        // A BAND value the logger has written that is not an ADIF 3.1.8 name,
+        // and the one ADIF band its whole range lies in. Built from the band
+        // table's history (repair round 2 of junk box batch 31), which in this
+        // repository begins at e68dabc5 (2024-03-03): that is a recorded limit,
+        // not a search that stopped. On main the only such label is "35cm"
+        // (902 to 928 MHz, ADIF's 33cm). "2200m", "5cm" and "1.2cm" were written
+        // only by this unmerged branch, so no operator's log holds them; they
+        // map one to one anyway. "above 275GHz" (275 GHz and up) spans a range
+        // with no ADIF band and ADIF's submm, so it gets no alias.
+        private static readonly (string Label, string Adif)[] BandLabelAliases =
+        {
+            ("35cm", "33cm"),
+            ("2200m", "2190m"),
+            ("5cm", "6cm"),
+            ("1.2cm", "1.25cm"),
+        };
+
+        /// <summary>
+        /// One logged contact's band, for comparing contacts and for the ADIF
+        /// export: the logged BAND when there is one (through the alias list
+        /// above, case ignored, else exactly as logged), and when the logged BAND
+        /// is empty, ADIF's band (<see cref="AdifBand"/>) for the transmit
+        /// frequency, or for the receive frequency only when the transmit one is
+        /// missing (0). Pure. Nothing stored is rewritten (repair round 2 of junk
+        /// box batch 31: an old 35cm entry and a new 33cm one, or an old entry
+        /// the parent logged with no BAND at 475 kHz and a new 630m one, now
+        /// compare equal).
+        /// </summary>
+        /// <param name="loggedBand">The record's BAND, as stored; null reads as empty.</param>
+        /// <param name="txHz">The record's TXFREQ in hertz, 0 when missing, unparseable or zero.</param>
+        /// <param name="rxHz">The record's FREQ (the receive frequency in this log) in hertz, 0 likewise.</param>
+        /// <remarks>
+        /// A nonzero transmit frequency that gives no ADIF band leaves the key
+        /// empty and never falls back to the receive frequency: that would hand a
+        /// cross-band contact its receive band, the defect this exists to end.
+        /// </remarks>
+        public static string ContactBandKey(string loggedBand, ulong txHz, ulong rxHz)
+        {
+            string logged = loggedBand ?? "";
+            string trimmed = logged.Trim();
+            if (trimmed.Length > 0)
+            {
+                foreach (var alias in BandLabelAliases)
+                    if (string.Equals(trimmed, alias.Label, StringComparison.OrdinalIgnoreCase)) return alias.Adif;
+                return logged;
+            }
+            if (txHz != 0) return AdifBand(txHz);
+            if (rxHz != 0) return AdifBand(rxHz);
+            return "";
+        }
+
         /// <summary>
         /// Return the band object
         /// </summary>

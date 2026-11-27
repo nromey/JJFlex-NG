@@ -82,17 +82,74 @@ public sealed class BandTableReadersTests
         Assert.Equal("33cm", Bands.AdifBand(915_000_000));   // was 35cm, never an ADIF value
     }
 
+    /// <summary>
+    /// Repair round 2 changed this pin on purpose: round 1 held the export's own
+    /// <c>AdifBand(FreqInt64(freqText))</c> line, which derived BAND from the
+    /// RECEIVE frequency. The export and duplicate checking now share one band
+    /// key (<see cref="Bands.ContactBandKey"/>, through <c>LogDupChecking.BandKey</c>);
+    /// the logger still writes <see cref="Bands.AdifBand"/> of the transmit
+    /// frequency. Their behaviour is <see cref="LogBandKeyTests"/>'s.
+    /// </summary>
     [Fact]
-    public void The_logger_and_the_export_ask_ADIF_and_nothing_else_does()
+    public void The_logger_the_export_and_duplicate_checking_ask_ADIF_and_nothing_else_does()
     {
         string root = FieldKeyMapScan.RepoRoot();
         string Read(string f) => System.IO.File.ReadAllText(System.IO.Path.Combine(root, f));
         Assert.Contains("HamBands.Bands.AdifBand(RigControl.TXFrequency)", Read("LogEntry.vb"));
         Assert.Contains("bandFld.Data = Bands.AdifBand(FreqInt64(val))", Read("LogSession.vb"));
         Assert.DoesNotContain("item.Name", Read("LogSession.vb"));
-        Assert.Contains("HamBands.Bands.AdifBand(FreqInt64(freqText))", Read("ExportForm.vb"));
+        Assert.Contains("value = LogDupChecking.BandKey(session)", Read("ExportForm.vb"));
+        Assert.DoesNotContain("AdifBand", Read("ExportForm.vb"));
+        Assert.Contains("HamBands.Bands.ContactBandKey(", Read("LogDupChecking.vb"));
         Assert.DoesNotContain("AdifBand", Read(System.IO.Path.Combine("Radios", "RadioStatusBuilder.cs")));
         Assert.DoesNotContain("AdifBand", Read(System.IO.Path.Combine("JJFlexWpf", "MainWindow.xaml.cs")));
+    }
+
+    // ---- repair round 2: one band key per contact ----
+
+    [Theory]
+    [InlineData("35cm", "33cm")]
+    [InlineData("35CM", "33cm")]
+    [InlineData("2200m", "2190m")]
+    [InlineData("5cm", "6cm")]
+    [InlineData("1.2cm", "1.25cm")]
+    [InlineData("70cm", "70cm")]
+    [InlineData("2M", "2M")]                       // an ADIF name, as logged
+    [InlineData("above 275GHz", "above 275GHz")]   // spans no band and submm: no alias
+    [InlineData("1.25m", "1.25m")]
+    public void A_logged_band_is_its_alias_or_itself(string logged, string key) =>
+        Assert.Equal(key, Bands.ContactBandKey(logged, 435_100_000, 145_900_000));
+
+    [Fact]
+    public void An_empty_logged_band_is_derived_from_transmit_then_receive()
+    {
+        Assert.Equal("70cm", Bands.ContactBandKey("", 435_100_000, 145_900_000));
+        Assert.Equal("70cm", Bands.ContactBandKey(null!, 435_100_000, 145_900_000));
+        Assert.Equal("2m", Bands.ContactBandKey("", 0, 145_900_000));          // transmit missing or zero
+        Assert.Equal("", Bands.ContactBandKey("", 219_500_000, 145_900_000));   // never the receive band
+        Assert.Equal("", Bands.ContactBandKey("", 0, 0));
+        Assert.Equal("630m", Bands.ContactBandKey("  ", 475_000, 0));          // blank is empty
+    }
+
+    /// <summary>
+    /// Every alias maps a label whose whole range lies inside exactly that ADIF
+    /// band, and is not itself an ADIF name. Retyped ranges from the labels'
+    /// history: 35cm 902 to 928 MHz (main), 2200m 135.7 to 137.8 kHz, 5cm 5650
+    /// to 5925 MHz and 1.2cm 24.0 to 24.25 GHz (this branch only).
+    /// </summary>
+    [Theory]
+    [InlineData("35cm", 902_000_000UL, 928_000_000UL)]
+    [InlineData("2200m", 135_700UL, 137_800UL)]
+    [InlineData("5cm", 5_650_000_000UL, 5_925_000_000UL)]
+    [InlineData("1.2cm", 24_000_000_000UL, 24_250_000_000UL)]
+    public void Each_alias_s_range_lies_in_its_one_ADIF_band(string label, ulong low, ulong high)
+    {
+        string alias = Bands.ContactBandKey(label, 0, 0);
+        Assert.NotEqual(label, alias);
+        Assert.Equal(alias, Bands.AdifBand(low));
+        Assert.Equal(alias, Bands.AdifBand(high));
+        Assert.Equal(alias, Bands.AdifBand((low + high) / 2));
+        Assert.NotEqual(label, Bands.AdifBand(low));   // the label itself is not ADIF's name
     }
 
     // ---- the Band Plans browser's mode filter ----
