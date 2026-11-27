@@ -1,2 +1,1 @@
-<!-- DRAFT: for Codex to word. Not approved copy. -->
-- Station Lookup, the logger's country lookups and the log fix-ups now find their country prefix file even when JJ Flexible Radio Access is started from a shortcut whose "start in" folder is somewhere else.
+- Country lookups in Station Lookup and the log now work when JJ Flexible Radio Access starts from a shortcut whose "Start in" setting names a different folder.

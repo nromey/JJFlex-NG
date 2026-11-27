@@ -1,2 +1,1 @@
-<!-- DRAFT: for Codex to word. Not approved copy. -->
-- The status line at the bottom of Home no longer says "Radio connected — power off" when the app only knows it stopped hearing from the radio. If Home cannot update the radio's status, it says the status is unavailable and the radio may be powered off or the connection may have dropped; after a disconnect it says the radio is disconnected. A profile import or a restart you confirmed still shows power off.
+- Home's status line now distinguishes a disconnect from an unavailable radio status instead of calling both "power off". Profile imports and confirmed restarts keep their existing power-off message.
