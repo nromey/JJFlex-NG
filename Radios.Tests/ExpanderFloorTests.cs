@@ -292,6 +292,36 @@ namespace Radios.Tests
             Assert.True(lost[lost.Count / 2] > 5, "the control: a threshold over the words must take their starts (" + lost[lost.Count / 2].ToString("F1") + " dB)");
         }
 
+        [Theory]
+        [InlineData(2f, false)]
+        [InlineData(2f, true)]
+        public void A_short_gap_between_syllables_is_held_open_so_a_word_is_not_chopped(float ratio, bool gate)
+        {
+            // Two-syllable words: 250 ms, a 400 ms gap, 250 ms, then 2 s of pause.
+            // The detector falls under the close point part way through the gap;
+            // the hold must keep the stage open until the second syllable.
+            int key = 15 * (int)Fs, syl = (int)(0.25 * Fs), inner = (int)(0.40 * Fs), pause = 2 * (int)Fs;
+            var room = Room("pink", -50, key + 12 * (2 * syl + inner + pause) + (int)Fs, 33);
+            var first = new List<(int Start, int End)>();
+            var x = room;
+            for (int w = 0; w < 10; w++)
+            {
+                int s0 = key + (int)Fs + w * (2 * syl + inner + pause);
+                x = Words(x, -20, s0, 1, syl, 0, first);
+                x = Words(x, -20, s0 + syl + inner, 1, syl, 0, new List<(int, int)>());
+            }
+            var c = new TxAudioConditioner();
+            c.SetGateInForce(NewSetup(ratio, gate));
+            var y = Run(c, x, key);
+            // The last 60 ms of each gap, just before the second syllable.
+            var gaps = first.Select(f => Down(x, y, f.End + inner - (int)(0.060 * Fs), f.End + inner)).OrderBy(v => v).ToList();
+            _out.WriteLine("the end of each gap inside a word: " + string.Join(", ", gaps.Select(v => v.ToString("F2"))));
+            Assert.True(gaps[^1] < 1.0, "a gap inside a word was turned down: " + string.Join(", ", gaps.Select(v => v.ToString("F1"))));
+            // Positive control: the same stage does close in the pause after the word.
+            var pauses = first.Select(f => Down(x, y, f.End + inner + syl + (int)(1.5 * Fs), f.End + inner + syl + pause)).OrderBy(v => v).ToList();
+            Assert.True(pauses[0] > 8, "the pauses after the words came down: " + string.Join(", ", pauses.Select(v => v.ToString("F1"))));
+        }
+
         // ── #1252: the meter sits upstream of the stage ──
 
         [Theory]
