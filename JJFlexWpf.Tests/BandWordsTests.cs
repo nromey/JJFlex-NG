@@ -121,6 +121,21 @@ public sealed class BandWordsTests
         Assert.Equal(mcw, FreqOutHandlers.FormatMode(Bands.Modes.MCW));
     }
 
+    [Theory]
+    [InlineData(14_200_000UL, "20m")]
+    [InlineData(475_000UL, "630m")]
+    [InlineData(136_500UL, "2200m")]
+    [InlineData(146_520_000UL, "2m")]
+    [InlineData(223_500_000UL, "1.25m")]
+    [InlineData(432_100_000UL, "70cm")]
+    [InlineData(5_200_000UL, "5.200 MHz")]   // no band: plain megahertz, as before
+    [InlineData(0UL, "")]
+    public void A_noise_profile_is_stamped_with_the_band_table_s_own_label(ulong hz, string expected)
+    {
+        AssertWindowless();
+        Assert.Equal(expected, NoiseProfileStore.BandLabelForFrequency(hz));
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

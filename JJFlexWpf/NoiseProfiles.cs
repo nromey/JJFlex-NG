@@ -139,19 +139,26 @@ public static class NoiseProfileStore
         try
         {
             freq = rig.RXFrequency;
-            var item = HamBands.Bands.Query(freq);
-            if (item != null)
-            {
-                string n = item.Band.ToString(); // enum names like "m20"
-                if (n.Length > 1 && n[0] == 'm' &&
-                    int.TryParse(n.Substring(1), NumberStyles.None, CultureInfo.InvariantCulture, out int meters))
-                    return meters + "m";
-            }
         }
         catch (Exception ex)
         {
             Trace.WriteLine($"NoiseProfileStore.BandLabelFor: {ex.Message}");
         }
+        return BandLabelForFrequency(freq);
+    }
+
+    /// <summary>
+    /// <see cref="BandLabelFor"/>'s label for a frequency, in hertz. Pure. The
+    /// band table's own display label (<c>BandItem.Name</c>: "20m", "630m",
+    /// "2200m", "70cm"), never one derived from the enum's member name, which
+    /// said "560m" for 630 m, "2190m" for 2200 m and "70m" for 70 cm (repair
+    /// round 1 of junk box batch 31). The label is only shown with a profile and
+    /// offered in its suggested name; nothing matches a saved profile by it.
+    /// </summary>
+    internal static string BandLabelForFrequency(ulong freq)
+    {
+        var item = freq > 0 ? HamBands.Bands.Query(freq) : null;
+        if (item != null && !string.IsNullOrEmpty(item.Name)) return item.Name;
         return freq > 0
             ? (freq / 1e6).ToString("F3", CultureInfo.InvariantCulture) + " MHz"
             : "";

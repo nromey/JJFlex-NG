@@ -196,6 +196,38 @@ namespace Radios.Tests
                 + "add it to ShownNotInName with the reason:\n" + string.Join("\n", unexplained));
         }
 
+        /// <summary>
+        /// Repair round 1 of junk box batch 31 (the Codex and Opus #1161 checks):
+        /// <see cref="SpokenNameScan"/> follows only controls whose XAML carries a
+        /// spoken name, so a control whose label AND spoken name are both set in
+        /// code is invisible to it, and a future edit could make the two differ
+        /// with every test green. These two are held explicitly: each one's label
+        /// and spoken name come from the same Lexicon key. The scanner's gap
+        /// itself is for the register.
+        /// </summary>
+        [Theory]
+        [InlineData("JJFlexWpf/Dialogs/SettingsDialog.xaml.cs", "EnforceTxRulesCheckbox", "settings.license.enforce_tx_rules_label")]
+        [InlineData("JJFlexWpf/Dialogs/SettingsDialog.CallsignCheck.cs", "RequireCallsignCheckbox", "settings.license.require_callsign_label")]
+        public void A_checkbox_labelled_and_named_in_code_takes_both_from_one_key(string file, string control, string key)
+        {
+            string src = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), file.Replace('/', Path.DirectorySeparatorChar)));
+            string flat = System.Text.RegularExpressions.Regex.Replace(src, @"\s+", " ");
+            // Built in pieces, so the Lexicon's key scan does not read these as keys.
+            string get = "Lexicon" + ".Get(\"" + key + "\")";
+            Assert.Contains(control + ".Content = " + get + ";", flat, StringComparison.Ordinal);
+            Assert.Matches(new System.Text.RegularExpressions.Regex(
+                @"AutomationProperties\.SetName\(" + control + @", " + System.Text.RegularExpressions.Regex.Escape(get) + @"\);"), flat);
+            // And nowhere else is either set to anything different.
+            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(flat, control + @"\.Content = ").Count);
+            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(flat, @"SetName\(" + control + ",").Count);
+            // The XAML names it nowhere, which is why the scanner cannot see it.
+            string xaml = File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.xaml"));
+            int at = xaml.IndexOf("x:Name=\"" + control + "\"", StringComparison.Ordinal);
+            Assert.True(at > 0, control + " is not in the XAML");
+            string element = xaml.Substring(at, xaml.IndexOf("/>", at, StringComparison.Ordinal) - at);
+            Assert.DoesNotContain("AutomationProperties.Name", element, StringComparison.Ordinal);
+        }
+
         [Fact]
         public void Every_relabel_in_code_renames_the_control_with_the_same_text()
         {
