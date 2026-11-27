@@ -207,7 +207,11 @@ namespace JJFlexWpf
                 RetainedRate: renders != null ? rate : 0,
                 LimiterCeilingDbfs: renders?.LimiterCeilingDbfs,
                 Render: renders == null ? null : settings => renders.AtLimiterInput(true, settings),
-                StageEnabled: current.Enabled);
+                StageEnabled: current.Enabled)
+            {
+                // The brightness solve's lift model, at Clarity's own output (2026-11-26).
+                SolveRender = renders == null ? null : settings => renders.AtClarityOutput(true, settings),
+            };
             var result = ClaritySuggest.FromTake(directory ?? "", input, reuseRender: true);
             cancel.ThrowIfCancellationRequested();
 
@@ -243,6 +247,8 @@ namespace JJFlexWpf
                 $", presence shortfall {r.Proposal.PresenceShortfallDb:F1} dB ({r.Proposal.Brightness}), fullness shortfall {r.Proposal.FullnessShortfallDb:F1} dB ({r.Proposal.Fullness})"))
             + (r.Guard == null ? ", guard not run" : FormattableString.Invariant(
                 $", guard at the limiter's input: {r.Guard.Steps} steps, {(r.Guard.Withdrawn ? "withdrawn" : r.Guard.Reduced ? "reduced" : "as proposed")}, over full scale {r.Guard.OverFullScaleBefore} before and {r.Guard.OverFullScaleAfter} after, peak {r.Guard.PeakBeforeDbfs:F1} to {r.Guard.PeakAfterDbfs:F1} dBFS, ceiling {(r.Guard.CeilingDbfs is double c ? c.ToString("F1", CultureInfo.InvariantCulture) : "none")}"))
+            + (r.Prediction is not { } e ? "" : FormattableString.Invariant(
+                $", predicted lift {e.PredictedLiftDb:F2} dB in {e.RegionLowHz} to {e.RegionHighHz} Hz (solved {e.SolvedLiftDb:F2}, most {e.MostLiftDb:F2}, limit {e.Limit})"))
             + (offer == null ? ", nothing to keep" : ", offer " + offer.Proposed);
 
         /// <summary>The live side for the trace line: facts only.</summary>
@@ -307,8 +313,10 @@ namespace JJFlexWpf
             var shown = o.Offer ?? r.Guard?.Proposal ?? p;
             if (p != null && shown != null)
             {
-                parts.Add(BandSentence(high: true, shown.Brightness, p.PresenceShortfallDb, shown.Proposed.High));
-                parts.Add(BandSentence(high: false, shown.Fullness, p.FullnessShortfallDb, shown.Proposed.Low));
+                parts.Add(BandSentence(high: true, shown.Brightness, p.PresenceShortfallDb, shown.Proposed.High, r.Prediction));
+                // What the brightness offer is predicted to do, from the operator's own recording (2026-11-26).
+                if (shown.Brightness == ClarityJudgement.Proposed && r.Prediction is { } expect) parts.Add(ExpectSentence(expect));
+                parts.Add(BandSentence(high: false, shown.Fullness, p.FullnessShortfallDb, shown.Proposed.Low, null));
             }
 
             if (r.Guard is { } guard)
@@ -360,7 +368,7 @@ namespace JJFlexWpf
         }
 
         /// <summary>One band's sentence: what was found against the reference, and what is proposed for it. Each a whole key.</summary>
-        private static string BandSentence(bool high, ClarityJudgement judgement, double shortfallDb, ClarityBand proposed)
+        private static string BandSentence(bool high, ClarityJudgement judgement, double shortfallDb, ClarityBand proposed, ClarityLiftPrediction? prediction)
         {
             (string, object?) shortfall = ("shortfall", N(shortfallDb));
             switch (judgement)
@@ -375,9 +383,44 @@ namespace JJFlexWpf
                     return Lexicon.Get(high ? "audio.clarity_suggest.brightness.outside_passband" : "audio.clarity_suggest.fullness.outside_passband");
                 case ClarityJudgement.AtTheRulesMost:
                     return Lexicon.Get(high ? "audio.clarity_suggest.brightness.at_most" : "audio.clarity_suggest.fullness.at_most", shortfall);
+                case ClarityJudgement.CannotLiftItMeasurably:
+                    return Lexicon.Get(high ? "audio.clarity_suggest.brightness.cannot_lift" : "audio.clarity_suggest.fullness.cannot_lift", shortfall,
+                        ("most", Decibels(prediction?.MostLiftDb ?? 0)));
                 default:
                     return Lexicon.Get(high ? "audio.clarity_suggest.brightness.withdrawn" : "audio.clarity_suggest.fullness.withdrawn", shortfall);
             }
+        }
+
+        /// <summary>
+        /// A decibel figure as a sentence takes it: one decimal at most, never
+        /// below zero, and its unit, singular for exactly one (#1342's trap).
+        /// </summary>
+        internal static string Decibels(double db)
+        {
+            string n = N(Math.Max(0.0, Math.Round(db, 1)));
+            return n + " " + Lexicon.Get(n == "1" ? "audio.unit.decibel" : "audio.unit.decibels");
+        }
+
+        /// <summary>
+        /// What the brightness offer is predicted to lift the region it measured
+        /// short by (2026-11-26), and, when that falls short of the shortfall,
+        /// why: the most the band can do within its ranges, or the peak guard.
+        /// Each a whole key; the numbers formatted before they reach it.
+        /// </summary>
+        internal static string ExpectSentence(ClarityLiftPrediction e)
+        {
+            var args = new (string, object?)[]
+            {
+                ("lift", Decibels(e.PredictedLiftDb)), ("shortfall", Decibels(e.ShortfallDb)),
+                ("most", Decibels(e.MostLiftDb)),
+                ("low", N(e.RegionLowHz, "0")), ("high", N(e.RegionHighHz, "0")),
+            };
+            return Lexicon.Get(e.Limit switch
+            {
+                ClarityLiftLimit.None => "audio.clarity_suggest.brightness.expect",
+                ClarityLiftLimit.PeakGuard => "audio.clarity_suggest.brightness.expect_guard",
+                _ => "audio.clarity_suggest.brightness.expect_most",
+            }, args);
         }
 
         // ── The two renders, written for playing ──

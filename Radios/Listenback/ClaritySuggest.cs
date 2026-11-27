@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using JJPortaudio;
 
 namespace Radios.Listenback;
@@ -69,6 +70,17 @@ public sealed record ClaritySuggestInput(
     bool StageEnabled = true)
 {
     /// <summary>
+    /// The renderer the brightness solve builds its lift model from
+    /// (2026-11-26): the operator's audio with a Clarity setting, at JJ
+    /// Clarity's OUTPUT, so the added path is exactly proportional to the
+    /// high band's weight (<see cref="ClarityLiftModel"/>). Phase 2 passes the
+    /// audition twin's chain up to Clarity, the compressor and the limiter
+    /// left out. Null: <see cref="Render"/> when given (the compressor then
+    /// bends the prediction a little), else Clarity alone.
+    /// </summary>
+    public Func<ClaritySettings, float[]> SolveRender { get; init; }
+
+    /// <summary>
     /// The settings as they act now: <see cref="Current"/> while the stage is
     /// on; with the stage off, the same bands each read as off. An off band's
     /// mix counts as zero, and its stored tune, drive, mix and harmonics are
@@ -112,6 +124,18 @@ public sealed record ClaritySuggestResult(
     ClarityProposal Proposal,
     ClarityGuardResult Guard)
 {
+    /// <summary>
+    /// The proposal the guard was given: the rule's, with its brightness
+    /// SOLVED from the operator's own recording (2026-11-26): the high band's
+    /// drive and mix that bring the measured region's predicted lift to the
+    /// shortfall. Null when no recording was given; then it is the rule's
+    /// <see cref="Proposal"/> unchanged.
+    /// </summary>
+    public ClarityProposal Solved { get; init; }
+
+    /// <summary>What the brightness offer is predicted to lift, and why it may fall short (2026-11-26). Null when nothing was solved: no recording, no brightness shortfall, or the recording held no speech to build the model from.</summary>
+    public ClarityLiftPrediction Prediction { get; init; }
+
     public bool GuardRan => Guard != null;
 
     /// <summary>True only when the guard has run and its proposal changes something: the one state in which Keep may be offered.</summary>
@@ -173,10 +197,102 @@ public static class ClaritySuggest
         if (!spectrum.Available) return Refused(Map(spectrum.Refusal), source, radio, spectrum);
         var proposal = ClarityProposalRule.Propose(spectrum, input.EffectiveCurrent);
         ClarityGuardResult guard = null;
+        ClarityProposal solved = null;
+        ClarityLiftPrediction prediction = null;
         if (input.RetainedAudio != null && input.RetainedAudio.Length > 0 && (input.RetainedRate > 0 || input.Render != null))
-            guard = ClarityPeakGuard.Apply(proposal, input.RetainedAudio, input.RetainedRate > 0 ? input.RetainedRate : (int)ClarityDesign.DesignRate,
-                (float)spectrum.PassbandLowHz, (float)spectrum.PassbandHighHz, input.LimiterCeilingDbfs, input.Render);
-        return new ClaritySuggestResult(true, ClaritySuggestRefusal.None, source, radio, spectrum, proposal, guard);
+        {
+            int rate = input.RetainedRate > 0 ? input.RetainedRate : (int)ClarityDesign.DesignRate;
+            float low = (float)spectrum.PassbandLowHz, high = (float)spectrum.PassbandHighHz;
+            var audio = input.RetainedAudio;
+            var solveRender = input.SolveRender ?? input.Render ?? (s => ClarityPeakGuard.RenderClarityOnly(audio, rate, s, low, high));
+            var brightness = SolveBrightness(proposal, solveRender, rate, low, high);
+            solved = brightness.Proposal;
+            guard = ClarityPeakGuard.Apply(solved, audio, rate, low, high, input.LimiterCeilingDbfs, input.Render);
+            prediction = brightness.Predict(guard);
+        }
+        return new ClaritySuggestResult(true, ClaritySuggestRefusal.None, source, radio, spectrum, proposal, guard)
+        {
+            Solved = solved,
+            Prediction = prediction,
+        };
+    }
+
+    /// <summary>The brightness solve's outcome: the proposal to guard, and what is needed to predict the guarded offer's lift.</summary>
+    private sealed class BrightnessSolve
+    {
+        public ClarityProposal Proposal;
+        public ClarityLiftModel Model;
+        public int[] Region, Middle;
+        public ClarityBrightnessSolve.Solved Solution;
+        public bool Offered;
+
+        /// <summary>The prediction for the offer the guard left, or null when nothing was solved.</summary>
+        public ClarityLiftPrediction Predict(ClarityGuardResult guard)
+        {
+            if (Model == null || Region.Length == 0) return null;
+            double shortfall = Proposal.PresenceShortfallDb;
+            int lowHz = Region.Min(), highHz = Region.Max();
+            if (!Offered)
+                return new ClarityLiftPrediction(shortfall, 0.0, 0.0, Solution.MostLiftDb, ClarityLiftLimit.Ranges, lowHz, highHz);
+            var kept = guard?.Proposal ?? Proposal;
+            var band = kept.ProposesBrightness ? kept.Proposed.High : kept.Current.High;
+            double lift = Model.LiftDb(Region, Middle, ClarityLiftModel.Weight(band));
+            bool reaches = lift >= shortfall - ClarityBrightnessSolve.ClosedWithinDb;
+            var limit = reaches ? ClarityLiftLimit.None
+                : kept.Brightness == ClarityJudgement.WithdrawnByPeakGuard || (guard != null && guard.Reduced) ? ClarityLiftLimit.PeakGuard
+                : ClarityLiftLimit.Ranges;
+            return new ClarityLiftPrediction(shortfall, lift, Solution.LiftDb, Solution.MostLiftDb, limit, lowHz, highHz);
+        }
+    }
+
+    /// <summary>
+    /// Solve the brightness proposal from the operator's own recording
+    /// (2026-11-26): two renders build a <see cref="ClarityLiftModel"/>, and
+    /// <see cref="ClarityBrightnessSolve"/> finds the high band's drive and
+    /// mix whose predicted lift closes the shortfall, or the most it can.
+    /// The fullness band is the rule's, unchanged. When the brightness is not
+    /// short, or the model cannot be built (no speech in the recording), the
+    /// rule's proposal is returned as it is.
+    /// </summary>
+    private static BrightnessSolve SolveBrightness(ClarityProposal proposal, Func<ClaritySettings, float[]> render, int rate, float low, float high)
+    {
+        var result = new BrightnessSolve { Proposal = proposal };
+        if (!(proposal.PresenceShortfallDb >= ClarityProposalRule.PresenceThresholdDb)) return result;
+        if (proposal.Brightness is not (ClarityJudgement.Proposed or ClarityJudgement.AtTheRulesMost)) return result;
+
+        var current = proposal.Current.High;
+        // The shape offered: the rule's tune and the stored harmonics (a band in force keeps its own tune).
+        var shape = proposal.Brightness == ClarityJudgement.Proposed ? proposal.Proposed.High : current;
+        double k0 = ClarityLiftModel.Weight(current);
+        if (!(k0 < 1.0 - 1e-9))
+        {
+            result.Proposal = proposal with { Brightness = ClarityJudgement.AtTheRulesMost, Proposed = proposal.Proposed.WithHigh(current) };
+            return result;
+        }
+        var region = proposal.Deviations.Where(d => d.NominalHz >= ClarityProposalRule.PresenceLowHz && d.NominalHz <= ClarityProposalRule.PresenceHighHz)
+            .Select(d => d.NominalHz).ToArray();
+        var middle = proposal.Deviations.Where(d => d.NominalHz >= ClarityProposalRule.MiddleLowHz && d.NominalHz <= ClarityProposalRule.MiddleHighHz)
+            .Select(d => d.NominalHz).ToArray();
+        if (region.Length == 0 || middle.Length == 0) return result;
+
+        var baseline = render(proposal.Current);
+        var full = render(proposal.Current.WithHigh(new ClarityBand(true, shape.TuneHz, ClaritySettings.DriveMaxDb, ClaritySettings.MixMaxPercent, shape.Harmonics)));
+        var model = ClarityLiftModel.Build(baseline, full, k0, rate, low, high);
+        if (model == null) return result;
+
+        var solution = ClarityBrightnessSolve.Solve(model, region, middle, current, shape, proposal.PresenceShortfallDb);
+        result.Model = model; result.Region = region; result.Middle = middle; result.Solution = solution;
+
+        if (solution.MostLiftDb < ClarityBrightnessSolve.LeastUsefulLiftDb)
+            result.Proposal = proposal with { Brightness = ClarityJudgement.CannotLiftItMeasurably, Proposed = proposal.Proposed.WithHigh(current) };
+        else if (solution.Band.Equals(current))
+            result.Proposal = proposal with { Brightness = ClarityJudgement.AtTheRulesMost, Proposed = proposal.Proposed.WithHigh(current) };
+        else
+        {
+            result.Proposal = proposal with { Brightness = ClarityJudgement.Proposed, Proposed = proposal.Proposed.WithHigh(solution.Band) };
+            result.Offered = true;
+        }
+        return result;
     }
 
     private static ClaritySuggestResult Refused(ClaritySuggestRefusal why, ClaritySuggestSource source,

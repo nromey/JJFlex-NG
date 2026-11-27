@@ -25,6 +25,14 @@ public enum ClarityJudgement
     AtTheRulesMost,
     /// <summary>A setting was proposed, and the peak guard took it back: even reduced, it put more samples over full scale (or past the limiter's ceiling) than the operator's audio has now.</summary>
     WithdrawnByPeakGuard,
+    /// <summary>
+    /// The region is short, but rendering the operator's own recording shows
+    /// the high band cannot lift it measurably even at the most its ranges
+    /// allow (under <see cref="ClarityBrightnessSolve.LeastUsefulLiftDb"/>):
+    /// nothing is proposed (2026-11-26). Only the solve, which has a
+    /// recording, can judge this; the rule alone never does.
+    /// </summary>
+    CannotLiftItMeasurably,
 }
 
 /// <summary>
@@ -82,6 +90,15 @@ public sealed record ClarityProposal(
 /// <see cref="FullnessThresholdDb"/> and <see cref="FullnessMixPerDb"/>,
 /// capped at <see cref="FullnessMixMostPercent"/>; tune 150 Hz unless the
 /// band is already on.</para>
+/// <para><b>Since 2026-11-26 the brightness mix here is only the first word.</b>
+/// When the operator's own recording is at hand (the only time anything can
+/// be kept), <see cref="ClaritySuggest"/> replaces the high band's drive and
+/// mix with ones SOLVED from renders of that recording
+/// (<see cref="ClarityBrightnessSolve"/>), within the ranges rather than the
+/// caps below, and says what it expects them to lift; a band at this rule's
+/// most is then solved too, since the ranges may still hold more. Without a
+/// recording this rule's proposal is shown for analysis and cannot be kept.
+/// The fullness band is this rule's in both cases.</para>
 /// <para>Every number here is Track J's judgement (in the report, for Noel),
 /// meant to be settled by the harness walk and his ears; the rule's SHAPE (a
 /// shortfall against a cited reference, proposing more only when short) is

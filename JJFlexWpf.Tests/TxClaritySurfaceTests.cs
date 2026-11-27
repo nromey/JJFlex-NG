@@ -698,6 +698,60 @@ public sealed class TxClaritySurfaceTests
         Assert.Equal(ChainAuditionTwin.WrongRateKey, wrongRate!.UnavailableKey);
     }
 
+    [Fact]
+    public void The_solves_render_is_the_chain_up_to_clarity_and_what_clarity_adds_there_scales_exactly_with_its_weight()
+    {
+        // 2026-11-26: the brightness solve's lift model needs the added path proportional to the high band's weight,
+        // so it renders at Clarity's output, the compressor and the limiter left out.
+        var setup = new TxNoiseSetup
+        {
+            Clarity = Bright(),
+            Compressor = new TxCompressorSetup { Enabled = true, ThresholdDb = -30, RatioToOne = 2, MakeupDb = 18 },
+            Limiter = new TxLimiterSetup { Enabled = true, CeilingDb = -6 },
+        };
+        var take = ChainAuditionTwinTests.Take(6);
+        var renders = Twin(setup, Ssb).PrepareClarity((float[])take.Clone(), Rate, CancellationToken.None, null, out _)!;
+        var lowOff = new ClarityBand(false, 150, 6, 25, ClarityHarmonics.Both);
+        ClaritySettings High(float drive, float mix) => new(new ClarityBand(true, 1800, drive, mix, ClarityHarmonics.Even), lowOff);
+        var none = new ClaritySettings(new ClarityBand(false, 1800, 24, 100, ClarityHarmonics.Even), lowOff);
+
+        // The same as a live-shaped conditioner with the compressor and the limiter out, sample for sample.
+        var c = new TxAudioConditioner { KeySource = () => true };
+        c.SetClarityPassband(Ssb.ClarityLowEdgeHz, Ssb.ClarityHighEdgeHz);
+        var record = TxAudioConditioning.ToConditioner(setup);
+        record.Limiter = TxLimiterSettings.Default;
+        record.Comp = TxCompressorSettings.Default;
+        record.Clarity = High(24, 100);
+        c.SetGateInForce(record);
+        var live = Through(c, (float[])take.Clone());
+        var full = renders.AtClarityOutput(true, High(24, 100));
+        for (int i = 0; i < take.Length; i++)
+            if (full[i] != live[i]) Assert.Fail($"sample {i}: twin {full[i]:R}, live {live[i]:R}");
+
+        // What Clarity adds at drive 24 and mix 50 is half of what it adds at mix 100, and drive 18 at mix 100 is that again.
+        var off = renders.AtClarityOutput(true, none);
+        var half = renders.AtClarityOutput(true, High(24, 50));
+        var lower = renders.AtClarityOutput(true, High(18, 100));
+        double scale = ClarityExciter.HarmonicRatio(18);
+        double most = 0, worst = 0, worstDrive = 0;
+        for (int i = 0; i < take.Length; i++)
+        {
+            double added = full[i] - (double)off[i];
+            most = Math.Max(most, Math.Abs(added));
+            worst = Math.Max(worst, Math.Abs(0.5 * added - (half[i] - (double)off[i])));
+            worstDrive = Math.Max(worstDrive, Math.Abs(scale * added - (lower[i] - (double)off[i])));
+        }
+        Assert.True(most > 1e-3, "Clarity added nothing to scale");
+        Assert.True(worst < 1e-5 * Math.Max(1, most) && worstDrive < 1e-5 * Math.Max(1, most), $"mix off by {worst:G3}, drive off by {worstDrive:G3}, of {most:G3}");
+        // The positive control: at the limiter's input, the compressor in, it does not scale.
+        var offC = renders.AtLimiterInput(true, none);
+        var fullC = renders.AtLimiterInput(true, High(24, 100));
+        var halfC = renders.AtLimiterInput(true, High(24, 50));
+        double worstC = 0;
+        for (int i = 0; i < take.Length; i++) worstC = Math.Max(worstC, Math.Abs(0.5 * (fullC[i] - (double)offC[i]) - (halfC[i] - (double)offC[i])));
+        Assert.True(worstC > 100 * Math.Max(worst, 1e-7), $"the compressor did not bend it ({worstC:G3})");
+    }
+
     // ── the editor (item 9): every way out but Close puts back, field by field ──
 
     [Fact]
@@ -983,6 +1037,56 @@ public sealed class TxClaritySurfaceTests
         Assert.Contains(Lexicon.Get("audio.clarity_suggest.retained_recording", ("file", "take-2026-11-24-230000")), report);
         Assert.Equal(Lexicon.Get("audio.clarity_suggest.changes_nothing"), report[^1]);
         Assert.DoesNotContain(report, s => s.Contains("clipping", StringComparison.OrdinalIgnoreCase) || s.Contains("free of", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void The_pass_solves_its_brightness_offer_says_what_it_expects_and_a_real_render_of_the_offer_lifts_that_much()
+    {
+        using var f = new FlowBench();
+        f.Take = OffAirTake(f.Root);
+        f.Current = TxAudioConditioning.CaptureClarity();
+        var o = f.Flow().Run(CancellationToken.None, null);
+        Assert.True(o.CanKeep);
+        var e = o.Result.Prediction!;
+        Assert.NotNull(e);
+        Assert.Equal(ClarityJudgement.Proposed, o.Result.Solved!.Brightness);
+        Assert.NotEqual(o.Result.Proposal!.Proposed.High, o.Offer!.Proposed.High);   // the offer is solved, not the rule's mix
+        Assert.True(o.Offer.Proposed.High.DriveDb >= f.Current.ToSettings().High.DriveDb);   // the stored drive is still the floor
+        // The prediction against a real render of the offer at Clarity's output, measured by the pass's own meter.
+        var renders = Twin(f.Chain, Ssb).PrepareClarity((float[])f.Retained!.Clone(), Rate, CancellationToken.None, null, out _)!;
+        var region = new[] { 1600, 2000, 2500 };
+        var middle = new[] { 500, 630, 800, 1000, 1250 };
+        double Sum(LongTermSpectrum s, int[] set) => s.Bands.Where(b => set.Contains(b.NominalHz)).Sum(b => Math.Pow(10, b.PowerDbfs / 10));
+        var before = LongTermSpectrumMeter.Measure(renders.AtClarityOutput(true, o.Result.Proposal.Current), Rate, 100, 2900);
+        var after = LongTermSpectrumMeter.Measure(renders.AtClarityOutput(true, o.Offer.Proposed), Rate, 100, 2900);
+        double real = 10 * Math.Log10(Sum(after, region) / Sum(before, region)) - 10 * Math.Log10(Sum(after, middle) / Sum(before, middle));
+        Assert.InRange(real - e.PredictedLiftDb, -0.1, 0.1);
+        // The report says it straight after the brightness suggestion, numbers formatted with their unit.
+        var report = ClaritySuggestFlow.Report(o);
+        int brightness = report.ToList().FindIndex(s => s.StartsWith("WORDING PLACEHOLDER: DRAFT PROSE: Brightness: your voice is", StringComparison.Ordinal));
+        Assert.True(brightness >= 0);
+        Assert.Equal(ClaritySuggestFlow.ExpectSentence(e), report[brightness + 1]);
+        Assert.Contains(ClaritySuggestFlow.Decibels(e.PredictedLiftDb), report[brightness + 1]);
+    }
+
+    [Fact]
+    public void Each_kind_of_expectation_has_its_own_sentence_and_one_decibel_is_singular()
+    {
+        var closes = new ClarityLiftPrediction(4, 4.02, 4.02, 6.9, ClarityLiftLimit.None, 1600, 2500);
+        var most = closes with { PredictedLiftDb = 2.3, SolvedLiftDb = 2.3, MostLiftDb = 2.3, Limit = ClarityLiftLimit.Ranges };
+        var guard = closes with { PredictedLiftDb = 1.0, Limit = ClarityLiftLimit.PeakGuard };
+        Assert.StartsWith("WORDING PLACEHOLDER: DRAFT PROSE:", ClaritySuggestFlow.ExpectSentence(closes));
+        var three = new[] { closes, most, guard }.Select(ClaritySuggestFlow.ExpectSentence).ToList();
+        Assert.Equal(3, three.Distinct().Count());
+        Assert.Equal(Lexicon.Get("audio.clarity_suggest.brightness.expect", ("lift", "4 " + Lexicon.Get("audio.unit.decibels")),
+            ("shortfall", "4 " + Lexicon.Get("audio.unit.decibels")), ("most", "6.9 " + Lexicon.Get("audio.unit.decibels")), ("low", "1600"), ("high", "2500")), three[0]);
+        // One decibel is singular, and so is a figure that rounds to one; anything else, zero included, is plural; never below zero.
+        Assert.Equal("1 " + Lexicon.Get("audio.unit.decibel"), ClaritySuggestFlow.Decibels(1.0));
+        Assert.Equal("1 " + Lexicon.Get("audio.unit.decibel"), ClaritySuggestFlow.Decibels(1.04));
+        Assert.Equal("1.1 " + Lexicon.Get("audio.unit.decibels"), ClaritySuggestFlow.Decibels(1.06));
+        Assert.Equal("0 " + Lexicon.Get("audio.unit.decibels"), ClaritySuggestFlow.Decibels(-0.3));
+        Assert.Contains("1 " + Lexicon.Get("audio.unit.decibel"), ClaritySuggestFlow.ExpectSentence(guard));
+        Assert.NotEqual(Lexicon.Get("audio.unit.decibel"), Lexicon.Get("audio.unit.decibels"));
     }
 
     [Fact]

@@ -595,13 +595,24 @@ namespace JJFlexWpf
             /// </summary>
             public float[] AtLimiterInput(bool clarityOn, ClaritySettings settings) => Run(clarityOn, settings, limiter: false);
 
-            private float[] Run(bool clarityOn, ClaritySettings settings, bool limiter)
+            /// <summary>
+            /// The audio at JJ CLARITY'S OUTPUT with Clarity set this way: the
+            /// same chain with the compressor and the limiter out (2026-11-26).
+            /// What the suggest pass's brightness solve builds its lift model
+            /// from: every stage before Clarity is the same for every setting,
+            /// so what Clarity adds here is exactly proportional to the high
+            /// band's weight, which the compressor after it would bend.
+            /// </summary>
+            public float[] AtClarityOutput(bool clarityOn, ClaritySettings settings) => Run(clarityOn, settings, limiter: false, compressor: false);
+
+            private float[] Run(bool clarityOn, ClaritySettings settings, bool limiter, bool compressor = true)
             {
                 var record = TxAudioConditioning.ToConditioner(_setup);
                 if (_up.WdspMode) record.Enabled = false;
                 record.ClarityEnabled = clarityOn;
                 record.Clarity = settings ?? ClaritySettings.Default;
                 if (!limiter) record.Limiter = TxLimiterSettings.Default;
+                if (!compressor) record.Comp = TxCompressorSettings.Default;
                 var output = new float[_length];
                 InProcessPass(record, _gate, _up.Threshold, _passband, _up.ExpanderInput, output, _up.Buffers, new float[BufferFrames * 2], _cancel, null);
                 return output;
