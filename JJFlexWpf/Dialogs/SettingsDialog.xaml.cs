@@ -526,8 +526,9 @@ namespace JJFlexWpf.Dialogs
             PortForwardUdpBox.Text = "4992";
             PortForwardSeparatePortsCheck.IsChecked = false;
             PortForwardUdpBox.IsEnabled = false;
-            // No radio yet: the 4992s are suggestions, and the boxes say so.
-            ShowPortFieldWords(-1, -1);
+            // No radio yet: the boxes keep today's plain labels and names
+            // (repair round 3); the suggestion words are for a connected radio.
+            ShowPortFieldWordsWithNoRadio();
             NetworkCurrentStateText.Text = Lexicon.Get("settings.no_radio_connected");
 
             // Task #102 — path learning (Network tab, bottom). Commits live
@@ -676,7 +677,7 @@ namespace JJFlexWpf.Dialogs
                 PortForwardUdpBox.Text = "4992";
                 PortForwardSeparatePortsCheck.IsChecked = false;
                 PortForwardUdpBox.IsEnabled = false;
-                ShowPortFieldWords(-1, -1);
+                ShowPortFieldWordsWithNoRadio();
                 RecordPortForwardShown();
                 // The tier is no longer edited here, connected or not (the
                 // tiers work, decision 8): this tab shows the in-use account's

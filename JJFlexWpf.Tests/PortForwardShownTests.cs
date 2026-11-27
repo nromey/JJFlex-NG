@@ -197,18 +197,42 @@ public sealed class PortForwardShownTests
         Assert.True(SettingsDialog.PortForwardChanged(shown, true, 25678, 25678, true, -1, -1));
     }
 
-    // Repair round 2: a number this program put in a port box (no radio;
-    // 4992 when forwarding's ports are not known; the TCP number copied into
-    // the UDP box when the UDP port is not known) is labelled and named as a
-    // suggestion, with a description heard on focus. A number the radio
-    // reported keeps today's label and name, with no description.
+    // Repair round 2: with a radio connected, a number this program put in a
+    // port box (4992 when forwarding's ports are not known; the TCP number
+    // copied into the UDP box when the UDP port is not known) is labelled and
+    // named as a suggestion, with a description heard on focus. A number the
+    // radio reported keeps today's label and name, with no description.
+    // Repair round 3 (Noel's ruling, 2026-11-26): with no radio connected (the
+    // first load and the disconnected refill) the boxes keep today's plain
+    // words, separate ports ticked or not.
 
+    /// <summary>The words after a connected refill that reported these ports.</summary>
     private static Words WordsAfterFill(bool enabled, int tcp, int udp)
     {
         var fill = SettingsDialog.PortBoxFill(enabled, tcp, udp);
-        return SettingsDialog.PortFieldPresentation(fill.Separate,
+        return SettingsDialog.ShownPortFieldWords(true, fill.Separate,
             SettingsDialog.PortBoxReported(tcp, fill.TcpText),
             SettingsDialog.PortBoxReported(udp, fill.UdpText));
+    }
+
+    /// <summary>
+    /// The words with no radio connected: nothing reported (-1, -1), the boxes
+    /// holding what the first load or the disconnected refill put there (4992)
+    /// or what the operator typed since.
+    /// </summary>
+    private static Words WordsWithNoRadio(bool separate, string tcpBox = "4992", string udpBox = "4992") =>
+        SettingsDialog.ShownPortFieldWords(false, separate,
+            SettingsDialog.PortBoxReported(-1, tcpBox),
+            SettingsDialog.PortBoxReported(-1, udpBox));
+
+    private static void AssertTodaysSeparateWords(Words w)
+    {
+        Assert.Equal(L("settings.network.port_label_tcp_only"), w.TcpLabel);
+        Assert.Equal(L("settings.network.port_name_shared"), w.TcpName);
+        Assert.Equal(string.Empty, w.TcpHelp);
+        Assert.Equal(L("settings.network.port_label_udp"), w.UdpLabel);
+        Assert.Equal(L("settings.network.port_name_udp"), w.UdpName);
+        Assert.Equal(string.Empty, w.UdpHelp);
     }
 
     private static string L(string key) => Lexicon.Get(key);
@@ -260,13 +284,39 @@ public sealed class PortForwardShownTests
     }
 
     [Fact]
-    public void With_no_radio_connected_the_4992s_are_suggestions()
+    public void With_no_radio_connected_the_boxes_keep_todays_plain_words()
     {
         AssertWindowless();
         // The first load and the disconnected refill show 4992 in both boxes
-        // and record no reported port (-1, -1).
-        AssertBothSuggestedShared(SettingsDialog.PortFieldPresentation(false,
-            SettingsDialog.PortBoxReported(-1, "4992"), SettingsDialog.PortBoxReported(-1, "4992")));
+        // and record no reported port (-1, -1). Nothing is offered to a radio
+        // there, so the boxes keep today's label and names, with no
+        // description (repair round 3).
+        AssertTodaysSharedWords(WordsWithNoRadio(separate: false));
+    }
+
+    [Fact]
+    public void A_refill_sequence_across_a_disconnect_goes_suggested_plain_suggested()
+    {
+        AssertWindowless();
+        // Connected, forwarding on, neither port known: the 4992s are suggestions.
+        AssertBothSuggestedShared(WordsAfterFill(true, -1, -1));
+        // The radio goes away: the disconnected refill puts today's words back.
+        AssertTodaysSharedWords(WordsWithNoRadio(separate: false));
+        // Reconnected, still neither port known: suggestions again.
+        AssertBothSuggestedShared(WordsAfterFill(true, -1, -1));
+    }
+
+    [Fact]
+    public void With_no_radio_ticking_and_unticking_separate_ports_keeps_todays_plain_words()
+    {
+        AssertWindowless();
+        // Ticked: the TCP-only label, the reported names, no descriptions.
+        AssertTodaysSeparateWords(WordsWithNoRadio(separate: true));
+        // Unticked: the handler copies TCP into UDP; today's shared words.
+        AssertTodaysSharedWords(WordsWithNoRadio(separate: false));
+        // The same with numbers the operator typed before ticking and unticking.
+        AssertTodaysSeparateWords(WordsWithNoRadio(separate: true, "25000", "25001"));
+        AssertTodaysSharedWords(WordsWithNoRadio(separate: false, "25000", "25000"));
     }
 
     [Theory]
@@ -375,9 +425,16 @@ public sealed class PortForwardShownTests
         string main = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "SettingsDialog.xaml.cs"));
         string words = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "SettingsDialog.PortFieldWords.cs"));
         string xaml = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "SettingsDialog.xaml"));
-        // The first load and the disconnected refill record no reported port.
-        Assert.Equal(2, CountOf(main, "ShowPortFieldWords(-1, -1);"));
-        Assert.Contains("ShowPortFieldWords(tcp, udp);", main);
+        // The first load and the disconnected refill say no radio is connected
+        // (repair round 3), and only the connected refill records reported
+        // ports; nothing records a connected refill with no ports in their place.
+        Assert.Equal(2, CountOf(main, "ShowPortFieldWordsWithNoRadio();"));
+        Assert.Equal(0, CountOf(main, "ShowPortFieldWords(-1, -1);"));
+        Assert.Equal(1, CountOf(main, "ShowPortFieldWords(tcp, udp);"));
+        Assert.Contains("_portWordsRadioConnected = false;", words);
+        Assert.Contains("_portWordsRadioConnected = true;", words);
+        string flatWords = System.Text.RegularExpressions.Regex.Replace(words, @"\s+", " ");
+        Assert.Contains("var words = ShownPortFieldWords( _portWordsRadioConnected,", flatWords);
         int handler = main.IndexOf("private void PortForwardSeparatePortsCheck_Changed", System.StringComparison.Ordinal);
         Assert.True(handler >= 0);
         int end = main.IndexOf("private void PortForwardTcpBox_TextChanged", handler, System.StringComparison.Ordinal);

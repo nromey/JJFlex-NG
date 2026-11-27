@@ -11,13 +11,20 @@ namespace JJFlexWpf.Dialogs
     /// <para>
     /// The boxes always hold a number, because OK and Apply validate them and
     /// the untouched-tab snapshot compares against them: blank boxes would make
-    /// an untouched OK refuse. So when the radio reports no external port
-    /// (no radio connected; forwarding's ports not known on this connection,
-    /// where the boxes hold 4992; or the UDP port not known, where the UDP box
-    /// copies the TCP number), the values stay, and the visible label, the
-    /// accessible name and the screen-reader description (heard on focus) say
-    /// the number is a suggestion. A number the radio reported keeps today's
-    /// label and name, with no description.
+    /// an untouched OK refuse. So when a connected radio reports no external
+    /// port (forwarding's ports not known on this connection, where the boxes
+    /// hold 4992; or the UDP port not known, where the UDP box copies the TCP
+    /// number), the values stay, and the visible label, the accessible name and
+    /// the screen-reader description (heard on focus) say the number is a
+    /// suggestion. A number the radio reported keeps today's label and name,
+    /// with no description.
+    /// </para>
+    /// <para>
+    /// With no radio connected (the first load and the disconnected refill)
+    /// the boxes keep today's plain words: the shared or TCP-only label, the
+    /// reported names, and no description, whether or not separate ports is
+    /// ticked (repair round 3, Noel's ruling). Nothing is offered to the radio
+    /// in that state, so the suggestion words would describe nothing.
     /// </para>
     /// <para>
     /// The words follow each refill and the separate-ports checkbox, never a
@@ -31,6 +38,13 @@ namespace JJFlexWpf.Dialogs
         /// <summary>The external ports the radio reported at the last refill; -1 when it reported none.</summary>
         private int _reportedPortTcp = -1;
         private int _reportedPortUdp = -1;
+
+        /// <summary>
+        /// Whether the last refill was of a connected radio. False until the
+        /// connected refill sets it, and set false again by the first load and
+        /// the disconnected refill (repair round 3).
+        /// </summary>
+        private bool _portWordsRadioConnected;
 
         /// <summary>What a connected refill writes into the port boxes, and whether it shows the ports separately.</summary>
         internal readonly record struct PortBoxFillValues(string TcpText, string UdpText, bool Separate);
@@ -124,15 +138,29 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
+        /// The words the port boxes carry, given whether a radio is connected.
+        /// With no radio connected they are today's plain words (the reported
+        /// words for the layout shown), whatever the boxes hold; with a radio
+        /// connected they are <see cref="PortFieldPresentation"/>'s. Pure, so a
+        /// test reaches it without a window (repair round 3).
+        /// </summary>
+        internal static PortFieldWords ShownPortFieldWords(bool radioConnected, bool separate, bool tcpReported, bool udpReported) =>
+            radioConnected
+                ? PortFieldPresentation(separate, tcpReported, udpReported)
+                : PortFieldPresentation(separate, tcpReported: true, udpReported: true);
+
+        /// <summary>
         /// Puts the right words on the port boxes for what they hold now,
-        /// against the ports recorded at the last refill.
+        /// against the ports recorded at the last refill and whether that
+        /// refill was of a connected radio.
         /// </summary>
         private void ApplyPortFieldWords()
         {
             if (PortForwardTcpBox == null || PortForwardUdpBox == null
                 || PortForwardTcpLabel == null || PortForwardUdpLabel == null
                 || PortForwardSeparatePortsCheck == null) return;
-            var words = PortFieldPresentation(
+            var words = ShownPortFieldWords(
+                _portWordsRadioConnected,
                 PortForwardSeparatePortsCheck.IsChecked == true,
                 PortBoxReported(_reportedPortTcp, PortForwardTcpBox.Text),
                 PortBoxReported(_reportedPortUdp, PortForwardUdpBox.Text));
@@ -144,11 +172,27 @@ namespace JJFlexWpf.Dialogs
             AutomationProperties.SetHelpText(PortForwardUdpBox, words.UdpHelp);
         }
 
-        /// <summary>Records what the radio reported (-1 for none) and puts the words on the boxes.</summary>
+        /// <summary>
+        /// The connected refill: records what the radio reported (-1 for none)
+        /// and puts the words on the boxes.
+        /// </summary>
         private void ShowPortFieldWords(int reportedTcp, int reportedUdp)
         {
+            _portWordsRadioConnected = true;
             _reportedPortTcp = reportedTcp;
             _reportedPortUdp = reportedUdp;
+            ApplyPortFieldWords();
+        }
+
+        /// <summary>
+        /// The first load and the disconnected refill: no radio, so nothing
+        /// reported, and the boxes keep today's plain words (repair round 3).
+        /// </summary>
+        private void ShowPortFieldWordsWithNoRadio()
+        {
+            _portWordsRadioConnected = false;
+            _reportedPortTcp = -1;
+            _reportedPortUdp = -1;
             ApplyPortFieldWords();
         }
     }
