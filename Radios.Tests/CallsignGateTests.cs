@@ -420,7 +420,10 @@ public sealed class CallsignGateTests : IDisposable
         {
             ("JJFlexWpf/KeyCommands.cs", "ZeroPowerDoors.RefuseTransmitPress(rig, \"a CW message\")"),
             ("JJFlexWpf/MainWindow.xaml.cs", "ZeroPowerDoors.RefuseTransmitPress(RigControl, \"the transmit toggle\")"),
-            ("JJFlexWpf/MainWindow.xaml.cs", "ZeroPowerDoors.RefuseTunePress(RigControl, \"the antenna tuner\")"),
+            // Repair round 1 of batch 31: the tuner's own door, which asks RefuseTunePress
+            // (the callsign, then tune power) and then the lockout; pinned just below.
+            ("JJFlexWpf/MainWindow.xaml.cs", "ZeroPowerDoors.RefuseTunerStart(RigControl, \"the antenna tuner\")"),
+            ("JJFlexWpf/ZeroPowerDoors.cs", "|| RefuseTunePress(rig, door, afterMenu)"),
             ("JJFlexWpf/MainWindow.xaml.cs", "ZeroPowerDoors.RefuseTunePress(RigControl, \"the tune carrier\")"),
             ("JJFlexWpf/NativeMenuBar.cs", "ZeroPowerDoors.RefuseTunePress(Rig, \"the tune menu\", afterMenu: true)"),
             ("JJFlexWpf/NativeMenuBar.cs", "ZeroPowerDoors.RefuseTunePress(Rig, \"the ATU menu\", afterMenu: true)"),
