@@ -210,6 +210,36 @@ namespace Radios.Tests
             Assert.False(string.IsNullOrWhiteSpace(TuningSteps.LabelFor(stranger)));
         }
 
+        /// <summary>
+        /// #346: a step with no label of its own (an added step, or the step in
+        /// force when the list lacks it) is WRITTEN in the starting labels'
+        /// style, never in the spoken form: the list showed "2500 hertz" beside
+        /// the starting "500 Hz".
+        /// </summary>
+        [Fact]
+        public void A_step_with_no_label_of_its_own_is_written_like_the_starting_ones()
+        {
+            // The style, pinned against every starting label: the written form
+            // of each starting value is exactly its own label.
+            foreach (var c in TuningSteps.StartingCoarse.Concat(TuningSteps.StartingFine))
+                Assert.Equal(Lexicon.Get(c.LabelKey), TuningSteps.FormatForLabel(c.Hz));
+
+            string added = TuningSteps.LabelFor(new TuningSteps.Choice(2500, ""));
+            Assert.Equal(Lexicon.Get("settings.tuning.step_label_khz",
+                ("value", 2.5m.ToString(System.Globalization.CultureInfo.CurrentCulture))), added);
+            Assert.DoesNotContain("hertz", added);
+            Assert.Equal(Lexicon.Get("settings.tuning.step_label_hz", ("value", "250")),
+                TuningSteps.LabelFor(new TuningSteps.Choice(250, "")));
+            Assert.Equal(Lexicon.Get("settings.tuning.step_label_mhz",
+                ("value", 1.234567m.ToString(System.Globalization.CultureInfo.CurrentCulture))),
+                TuningSteps.FormatForLabel(1234567));
+
+            // A starting step's label is unchanged, and speech is unchanged.
+            var starting = TuningSteps.StartingCoarse.First(c => c.Hz == 500);
+            Assert.Equal(Lexicon.Get("settings.tuning.coarse_step_500_hz"), TuningSteps.LabelFor(starting));
+            Assert.Equal(Lexicon.Get("settings.tuning.step_hertz", ("value", 2500)), TuningSteps.FormatForSpeech(2500));
+        }
+
         // ────────────────────────────────────────────────────────────────
         //  Saying it
         // ────────────────────────────────────────────────────────────────

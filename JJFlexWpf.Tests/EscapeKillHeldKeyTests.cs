@@ -51,6 +51,8 @@ public sealed class EscapeKillHeldKeyTests : IDisposable
     private readonly PttHoldFilter _filter = new();
     private readonly MainWindow _main;
     private readonly Func<bool>? _endBefore;
+    private static readonly long KillMs = PttConfig.HardKillSeconds * 1000L;
+    private long _now = 1_000_000;
 
     public EscapeKillHeldKeyTests()
     {
@@ -58,6 +60,9 @@ public sealed class EscapeKillHeldKeyTests : IDisposable
         _rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
         _controller = new PttSafetyController(() => _rig, () => true,
             new PttConfig { ChirpEnabled = false, SpeechEnabled = false });
+        // The held key's own clock, so the fifteen-minute limit can be reached
+        // (as HeldKeyLimitTests drives it). It stands still unless a test moves it.
+        _controller.HoldClockMs = () => _now;
         _main = (MainWindow)RuntimeHelpers.GetUninitializedObject(typeof(MainWindow));
         Put("_pttController", _controller);
         Put("_radioPowerOn", true);
@@ -331,22 +336,92 @@ public sealed class EscapeKillHeldKeyTests : IDisposable
         Assert.Equal(Hold, _controller.State);
     }
 
+    /// <summary>The held key's timer ticks once at <paramref name="msFromFirst"/> after the first press (as HeldKeyLimitTests does).</summary>
+    private void HoldClockAt(long firstPress, long msFromFirst)
+    {
+        _now = firstPress + msFromFirst;
+        var f = typeof(PttSafetyController).GetField("_holdTimer", Any);
+        Assert.True(f != null, "production field PttSafetyController._holdTimer is missing");
+        var timer = (DispatcherTimer?)f!.GetValue(_controller);
+        Assert.True(timer != null, "no held key timer is running");
+        var tick = (EventHandler?)typeof(DispatcherTimer).GetField("Tick", Any)?.GetValue(timer);
+        Assert.True(tick != null, "the production timer has no Tick handler");
+        tick!(timer, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// The four latch routes that reach <c>LatchAppEndedHold</c> without going
+    /// through <c>EndTransmitOutsideTheEdges</c> (#1089, the 2026-11-18 closure
+    /// sweep's remainder): a reference recording's end, the hard kill, the
+    /// fifteen-minute limit and the reflected-power cut. Each ends the hold in
+    /// flight; the cut's own five-second hold is ended at once, so what is
+    /// tested after it is the key, not the cut.
+    /// </summary>
+    private void EndTheHoldBy(string route, long firstPress)
+    {
+        switch (route)
+        {
+            case "reference": Assert.True((bool)Call("HandleReferenceEndUnkey")!, "positive control: the reference's end unkeyed"); break;
+            case "kill": _controller.KillTransmitNow("test"); break;
+            case "limit": HoldClockAt(firstPress, KillMs); break;
+            case "cut":
+                ReflectedCutNow();
+                Assert.True(_controller.CutHold.Holding, "positive control: the cut began its hold");
+                _controller.CutHold.Abandon("the test ends the hold early", Environment.TickCount64, immediate: true);
+                break;
+            default: throw new ArgumentOutOfRangeException(nameof(route), route, null);
+        }
+    }
+
+    /// <summary>
+    /// The control for the lost-up tests below: on each of the four routes,
+    /// while the hold filter still reads the key as held, a screen reader's
+    /// synthetic re-down keys nothing. The repeat guard is cleared at the
+    /// latch, and this is what still stops a held key keying again.
+    /// </summary>
+    [Theory]
+    [InlineData("reference")]
+    [InlineData("kill")]
+    [InlineData("limit")]
+    [InlineData("cut")]
+    public void After_any_latch_route_a_synthetic_re_down_keys_nothing(string route)
+    {
+        AssertTheDeskIsSafe();
+        long first = _now;
+        JawsHoldOnHome();
+        EndTheHoldBy(route, first);
+        Assert.Equal(Idle, _controller.State);
+        Assert.True(Latched, "positive control: the hold was latched");
+        Assert.False((bool)Get("_pttKeyDown")!, "the latch clears the repeat guard");
+        PairsKeyNothingThenARealReleaseEndsIt(HomeUp, HomeDown);
+    }
+
     /// <summary>
     /// The second check of #1089, N1: the real key-up never reaches the app
     /// (focus left before the space bar came up), so the latch leaves a
     /// repeat guard nobody will clear. The operator's next press must key, as
-    /// it did before the latch: the guard is cleared at the latch, as #900
-    /// clears it at a dialog's window loss.
+    /// it did before the latch: the guard is cleared at the latch itself
+    /// (<c>LatchAppEndedHold</c>), as #900 clears it at a dialog's window
+    /// loss, so every latch route gets it: Escape on Home and in a dialog, the
+    /// radio's own off, and (since the closure sweep's remainder) a
+    /// reference's end, the hard kill, the fifteen-minute limit and the
+    /// reflected-power cut. A test with a real up passes without the fix (the
+    /// up clears the guard through <c>PttKeyUpEdge</c>); the lost up is the case.
     /// </summary>
     [Theory]
     [InlineData("home")]
     [InlineData("dialog")]
     [InlineData("off")]
+    [InlineData("reference")]
+    [InlineData("kill")]
+    [InlineData("limit")]
+    [InlineData("cut")]
     public void When_the_real_up_is_lost_after_the_app_ends_a_hold_the_next_press_keys(string door)
     {
         AssertTheDeskIsSafe();
         var w = new FakeWindow();
         Action down = HomeDown;
+        long first = _now;
         if (door == "dialog")
         {
             Assert.True(DialogTransmitKeys.KeyDown(w, CtrlSpace, false, false));
@@ -360,6 +435,7 @@ public sealed class EscapeKillHeldKeyTests : IDisposable
             case "home": Call("EndTransmitOutsideTheEdges", "Escape on Home", (Action)(() => _controller.EscapeUnlock())); break;
             case "dialog": Assert.True(DialogTransmitKeys.KeyDown(w, Keys.Escape, false, false)); break;
             case "off": Call("RadioStoppedTransmitting"); break;
+            default: EndTheHoldBy(door, first); break;
         }
         Assert.Equal(Idle, _controller.State);
         Assert.True(Latched, "positive control: the hold was latched");

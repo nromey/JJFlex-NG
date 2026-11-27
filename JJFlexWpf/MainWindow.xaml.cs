@@ -3280,6 +3280,17 @@ public partial class MainWindow : UserControl
         _pttHoldEndedByApp = true;
         _pttLatchDoor = _pttHoldDoor;
         _pttHoldDoor = PttDoor.None;
+        // Only the repeat guard goes, as at a dialog's window loss (#900), and
+        // here, at the latch itself, so every route that latches gets it once
+        // (#1089): Escape, the radio's own off, a reference's end, the hard
+        // kill, the fifteen-minute limit and the reflected-power cut. The up
+        // the guard waits for may never reach us (focus can leave before the
+        // key comes up), and a guard left set silently swallowed the next
+        // press. Every door drops a held key's repeats before the edge, and
+        // every up that does arrive clears the guard anyway, so the guard is
+        // not what stops a held key keying again; the latch and the hold
+        // filter are (the second check of #1089, N1).
+        _pttKeyDown = false;
         Tracing.TraceLine("PTT: the app ended a held push to talk (" + why + "); until the key is"
             + " really let go, a down the hold filter reads as the hold continuing keys nothing", TraceLevel.Info);
     }
@@ -3330,17 +3341,9 @@ public partial class MainWindow : UserControl
     {
         bool held = _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold;
         end();
-        if (held)
-        {
-            LatchAppEndedHold(why);
-            // Only the repeat guard goes, as at a dialog's window loss (#900):
-            // the up it waits for may never reach us (focus can leave before
-            // the key comes up), and a guard left set silently swallowed the
-            // next press. Every door drops a held key's repeats before the
-            // edge, so the guard is not what stops a held key keying again;
-            // the latch and the hold filter are (the second check of #1089, N1).
-            _pttKeyDown = false;
-        }
+        // A hold is latched, which also clears the repeat guard (see
+        // LatchAppEndedHold, #1089).
+        if (held) LatchAppEndedHold(why);
         else ResetPttInput();
     }
 
@@ -4824,13 +4827,15 @@ public partial class MainWindow : UserControl
         ModeControl.IsEnabled = true;
         ModeControl.ClearCache();
         ModeControl.TheList = null;
-        var modeList = new ArrayList();
-        foreach (string val in RigCaps.ModeTable)
+        // The radio's own modes (#1017), as every other mode surface reads
+        // them, re-read on each poll and when the list opens (see
+        // RefreshModeComboList). Filled once here it may catch the fallback list.
+        ModeControl.TheList = ModeComboItems(RigControl.RadioModeList);
+        ModeControl.UpdateDisplayFunction = () =>
         {
-            modeList.Add(val);
-        }
-        ModeControl.TheList = modeList;
-        ModeControl.UpdateDisplayFunction = () => RigControl.Mode;
+            RefreshModeComboList();
+            return RigControl.Mode;
+        };
         ModeControl.UpdateRigFunction = (v) =>
         {
             if (!_radioPowerOn)
@@ -4842,9 +4847,100 @@ public partial class MainWindow : UserControl
         };
         _comboControls.Add(ModeControl);
         _enableDisableControls.Add(ModeControl);
+        GuardModeComboWrites();
 
         // SentTextBox in enable/disable collection
         _enableDisableControls.Add(SentTextBox);
+    }
+
+    /// <summary>
+    /// The classic Mode combo's items: the radio's own mode list through
+    /// <see cref="Radios.ModeCycle.KnownModes"/>, the one definition the Mode
+    /// menu, the cycle and <see cref="SetMode"/> use (#1017). Until then it
+    /// offered our fixed <c>RigCaps.ModeTable</c>, which names modes a radio may
+    /// not have (the 8600 lists no DSB). FlexLib's documented set stands in
+    /// until the radio reports a list. Pure, so a test reaches it windowless.
+    /// </summary>
+    internal static ArrayList ModeComboItems(IReadOnlyList<string> radioModes) =>
+        new ArrayList(Radios.ModeCycle.KnownModes(radioModes).ToArray());
+
+    /// <summary>
+    /// The items the combo should now show, or null when what it shows is
+    /// already the radio's list, item for item. The order is the radio's: the
+    /// order the list arrives in is not established, so it is never assumed.
+    /// </summary>
+    internal static ArrayList? ModeComboRefresh(IList? shown, IReadOnlyList<string> radioModes)
+    {
+        var wanted = ModeComboItems(radioModes);
+        if (shown != null && shown.Count == wanted.Count)
+        {
+            bool same = true;
+            for (int i = 0; i < wanted.Count && same; i++)
+                same = string.Equals(shown[i] as string, (string?)wanted[i], StringComparison.Ordinal);
+            if (same) return null;
+        }
+        return wanted;
+    }
+
+    /// <summary>
+    /// Whether the combo may write <paramref name="choice"/>: only a mode the
+    /// radio lists, the test <see cref="SetMode"/> makes. Pure.
+    /// </summary>
+    internal static bool ModeComboWriteAllowed(object? choice, IReadOnlyList<string> radioModes) =>
+        Radios.ModeCycle.Contains(Radios.ModeCycle.KnownModes(radioModes), choice?.ToString());
+
+    /// <summary>
+    /// Re-read the radio's mode list into the combo when it changed: on every
+    /// poll (the radio's list can arrive after connect) and when the list is
+    /// opened. A changed list drops the combo's selection, so the display is
+    /// forced to put the current mode back.
+    /// </summary>
+    private void RefreshModeComboList()
+    {
+        if (RigControl == null) return;
+        var fresh = ModeComboRefresh(ModeControl.TheList, RigControl.RadioModeList);
+        if (fresh == null) return;
+        ModeControl.TheList = fresh;
+        ModeControl.ClearCache();
+        Tracing.TraceLine("ModeControl: the radio's mode list changed; now " + fresh.Count + " modes", TraceLevel.Info);
+    }
+
+    private void ModeControl_DropDownOpened(object? sender, EventArgs e)
+    {
+        RefreshModeComboList();
+        ModeControl.UpdateDisplay(forceUpdate: true);
+    }
+
+    /// <summary>
+    /// The combo refuses a mode the radio has not listed, out loud and in
+    /// SetMode's words, and writes nothing (#1017). Wraps the write SetupBoxes
+    /// just set rather than editing it, so the write itself stays exactly where
+    /// it is. Also listens for the list opening, once.
+    /// </summary>
+    private void GuardModeComboWrites()
+    {
+        ModeControl.DropDownOpened -= ModeControl_DropDownOpened;
+        ModeControl.DropDownOpened += ModeControl_DropDownOpened;
+        var write = ModeControl.UpdateRigFunction;
+        if (write == null) return;
+        ModeControl.UpdateRigFunction = v =>
+        {
+            if (RigControl != null && !ModeComboWriteAllowed(v, RigControl.RadioModeList))
+            {
+                string mode = v?.ToString() ?? "";
+                Tracing.TraceLine("ModeControl: refused " + mode + ", which this radio does not list", TraceLevel.Info);
+                // DRAFT PROSE, SetMode's sentence.
+                Radios.ScreenReaderOutput.Speak(
+                    Radios.Lexicon.Get("settings.mode.not_on_radio", ("mode", Radios.ModeWords.Spoken(mode))),
+                    Radios.Speech.SpeechIntent.Latest, VerbosityLevel.Terse,
+                    subject: Radios.Speech.SpeechSubject.ValueField("Mode"));
+                // The combo shows the refused choice; the next poll puts the
+                // radio's mode back.
+                ModeControl.ClearCache();
+                return;
+            }
+            write(v);
+        };
     }
 
     /// <summary>

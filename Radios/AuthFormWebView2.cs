@@ -61,10 +61,13 @@ namespace Radios
         private string _codeChallenge;
         private string _state;
 
-        // Auth0 configuration
-        private const string Auth0Domain = "frtest.auth0.com";
-        private const string Auth0ClientId = "4Y9fEIIsVYyQo5u6jr7yBWc4lV5ugC2m";
-        private const string RedirectUri = "https://frtest.auth0.com/mobile";
+        // Auth0 configuration: today's values unless the operator's settings
+        // folder overrides them (#332, SmartLinkAuth0Settings). Read once per
+        // sign-in window, so one exchange never mixes two readings.
+        private readonly SmartLinkAuth0Settings _auth0 = SmartLinkAuth0Settings.Current;
+        private string Auth0Domain => _auth0.Domain;
+        private string Auth0ClientId => _auth0.ClientId;
+        private string RedirectUri => _auth0.RedirectUri;
 
         /// <summary>
         /// Raw tokens array (legacy compatibility).
@@ -549,7 +552,7 @@ namespace Radios
                 var uri = new Uri(webView.Source.ToString());
                 Tracing.TraceLine("AuthFormWebView2 NavigationCompleted: " + uri.AbsoluteUri, TraceLevel.Info);
 
-                if (uri.AbsolutePath == "/mobile")
+                if (uri.AbsolutePath == _auth0.RedirectPath)
                 {
                     // Check for authorization code in query string
                     var query = HttpUtility.ParseQueryString(uri.Query);

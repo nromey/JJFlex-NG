@@ -1,0 +1,1 @@
+- The main window's Mode list now follows the radio's reported modes, including a list received after connecting. A mode outside the available list is refused.

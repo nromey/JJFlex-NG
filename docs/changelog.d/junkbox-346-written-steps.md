@@ -1,0 +1,1 @@
+- Custom tuning steps now use the same written units as the starting steps: 2,500 hertz appears as "2.5 kHz" in the step lists. The application's spoken step announcements still say "2500 hertz" for that value.

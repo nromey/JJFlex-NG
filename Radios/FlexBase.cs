@@ -2353,11 +2353,11 @@ namespace Radios
         /// <summary>True when the radio has manual port forwarding configured.</summary>
         public bool PortForwardingEnabled => theRadio?.IsPortForwardOn ?? false;
 
-        /// <summary>The external (public) TCP port the radio advertises for SmartLink, or -1 if none.</summary>
-        public int PortForwardingTcpPort => theRadio?.PublicTlsPort ?? -1;
+        /// <summary>The external TCP port of the manually forwarded pair the radio advertises for SmartLink, or -1 if not known (FlexBase.ManualPortPair.cs).</summary>
+        public int PortForwardingTcpPort => ManualPortPair().TlsPort;
 
-        /// <summary>The external (public) UDP port the radio advertises for SmartLink, or -1 if none.</summary>
-        public int PortForwardingUdpPort => theRadio?.PublicUdpPort ?? -1;
+        /// <summary>The external UDP port of the same pair, or -1 if not known; never FlexLib's local 4991 (FlexBase.ManualPortPair.cs).</summary>
+        public int PortForwardingUdpPort => ManualPortPair().UdpPort;
 
         /// <summary>
         /// Configure SmartLink manual port forwarding on the radio's firmware.

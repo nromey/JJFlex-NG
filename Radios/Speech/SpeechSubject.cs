@@ -598,6 +598,13 @@ namespace Radios.Speech
         public const string TuningStepListEdit = "tuning-step-list-edit";
 
         /// <summary>
+        /// The answer to exporting or importing one filter preset in the
+        /// filter preset editor (#314): written, imported, or refused. Each is
+        /// covered by the next such answer from the same editor.
+        /// </summary>
+        public const string FilterPresetFile = "filter-preset-file";
+
+        /// <summary>
         /// The outcome of an edit in the Memories dialog that the dialog's own
         /// controls cannot convey — the radio did not add a memory, or a typed
         /// frequency was refused and the old one kept. Covered by the next such

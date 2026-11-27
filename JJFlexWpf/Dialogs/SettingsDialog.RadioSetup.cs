@@ -234,28 +234,7 @@ namespace JJFlexWpf.Dialogs
                 _ => Lexicon.Get("settings.radio.mode.forward_only"),
             };
 
-            if (forwarding && tcp > 0)
-            {
-                // Track C wording fix: the radio advertises these external
-                // ports; it listens on its LAN address at TCP 4994 / UDP 4993,
-                // and the router rules must say so.
-                string ports = (udp > 0 && udp != tcp)
-                    ? Lexicon.Get("settings.radio.way_in.ports_separate", ("tcp", tcp), ("udp", udp))
-                    : Lexicon.Get("settings.radio.way_in.ports_same", ("tcp", tcp));
-                int udpShown = udp > 0 ? udp : tcp;
-                SetupWayInStatus.Text = Lexicon.Get("settings.radio.way_in.set",
-                    ("ports", ports),
-                    ("modeText", modeText),
-                    ("tcp", tcp),
-                    ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
-                    ("udpShown", udpShown),
-                    ("udpPort", FlexBase.SmartLinkRadioUdpPort));
-            }
-            else
-            {
-                SetupWayInStatus.Text = Lexicon.Get("settings.radio.way_in.not_set",
-                    ("modeText", modeText));
-            }
+            SetupWayInStatus.Text = WayInLine(forwarding, tcp, udp, modeText);
 
             // Step 6 — whether any of it works from outside. Reports the last probe
             // if one has run rather than pretending nothing is known; a stale answer
@@ -284,6 +263,52 @@ namespace JJFlexWpf.Dialogs
             SetupRestartStatus.Text = staticIp != null
                 ? Lexicon.Get("settings.radio.restart.pending")
                 : Lexicon.Get("settings.radio.restart.nothing_waiting");
+        }
+
+        /// <summary>
+        /// Step 5's line: the external ports the radio advertises for manual
+        /// forwarding and the router rules they need. Pure, so a test reaches
+        /// it without a window.
+        /// </summary>
+        /// <remarks>
+        /// A UDP port that is not known (-1, or 0 from a radio rebuilt from the
+        /// connection cache) is said to be not known (#1065). Until then the
+        /// line put the TCP number in the UDP rule ("udpShown") and called the
+        /// one port "TCP and UDP", which is a guess about the operator's router
+        /// presented as what the radio advertises.
+        /// </remarks>
+        internal static string WayInLine(bool forwarding, int tcp, int udp, string modeText)
+        {
+            if (!forwarding)
+                return Lexicon.Get("settings.radio.way_in.not_set", ("modeText", modeText));
+            // Forwarding on, the external TCP port not known: until repair
+            // round 1 this shared the branch above and said forwarding was
+            // disabled. No external number is named.
+            if (tcp <= 0)
+                return Lexicon.Get("settings.radio.way_in.set_ports_unknown",
+                    ("modeText", modeText),
+                    ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
+                    ("udpPort", FlexBase.SmartLinkRadioUdpPort));
+            // Track C wording fix: the radio advertises these external
+            // ports; it listens on its LAN address at TCP 4994 / UDP 4993,
+            // and the router rules must say so.
+            if (udp <= 0)
+                return Lexicon.Get("settings.radio.way_in.set_udp_unknown",
+                    ("ports", Lexicon.Get("settings.radio.way_in.ports_udp_unknown", ("tcp", tcp))),
+                    ("modeText", modeText),
+                    ("tcp", tcp),
+                    ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
+                    ("udpPort", FlexBase.SmartLinkRadioUdpPort));
+            string ports = udp != tcp
+                ? Lexicon.Get("settings.radio.way_in.ports_separate", ("tcp", tcp), ("udp", udp))
+                : Lexicon.Get("settings.radio.way_in.ports_same", ("tcp", tcp));
+            return Lexicon.Get("settings.radio.way_in.set",
+                ("ports", ports),
+                ("modeText", modeText),
+                ("tcp", tcp),
+                ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
+                ("udpShown", udp),
+                ("udpPort", FlexBase.SmartLinkRadioUdpPort));
         }
 
         private void RadioSetupRefreshButton_Click(object sender, RoutedEventArgs e)

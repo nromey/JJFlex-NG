@@ -444,6 +444,140 @@ public class FilterPresets
     }
 
     #endregion
+
+    #region One preset as a file (#314)
+
+    /// <summary>
+    /// The mode lists the preset editor shows, in its order. A preset file
+    /// naming any other mode is refused on import: it would land in a list
+    /// nothing shows.
+    /// </summary>
+    public static IReadOnlyList<string> ModeKeys { get; } = new[] { "SSB", "CW", "DIGI", "AM", "FM" };
+
+    /// <summary>
+    /// The editable list for <paramref name="mode"/>: the saved one, or the
+    /// defaults copied in so they can be changed (an edit of the transient
+    /// defaults list would otherwise be lost).
+    /// </summary>
+    public ModePresets EditableList(string mode)
+    {
+        var existing = Modes.FirstOrDefault(m => string.Equals(m.Mode, mode, StringComparison.OrdinalIgnoreCase));
+        if (existing != null) return existing;
+        var copy = new ModePresets
+        {
+            Mode = mode,
+            Presets = GetPresetsForMode(mode).Select(p => new FilterPreset(p.Name, p.Low, p.High)).ToList(),
+        };
+        Modes.Add(copy);
+        return copy;
+    }
+
+    /// <summary>
+    /// Write one preset to <paramref name="path"/> as a file another operator
+    /// can import, naming the mode list it came from. Returns whether the file
+    /// landed: an export is never announced on faith.
+    /// </summary>
+    public static bool ExportPreset(string path, string mode, FilterPreset preset)
+    {
+        if (preset == null) throw new ArgumentNullException(nameof(preset));
+        try
+        {
+            var file = new FilterPresetFile { Mode = mode ?? "", Name = preset.Name, Low = preset.Low, High = preset.High };
+            var serializer = new XmlSerializer(typeof(FilterPresetFile));
+            AtomicFile.Write(path, fs => serializer.Serialize(fs, file));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine($"FilterPresets.ExportPreset failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Read one exported preset. Never throws, and NEVER moves, renames or
+    /// rewrites the file it reads: it is someone's file, not this operator's
+    /// store, so the store's set-aside of an unreadable file
+    /// (<see cref="UnreadableSettingsFile.SetAside"/>) is not used here. Opened
+    /// for reading only, sharing reads. False, with nothing read, for a file
+    /// that cannot be opened or parsed, a preset with its high edge not above
+    /// its low, or a mode the editor has no list for.
+    /// </summary>
+    /// <param name="fallbackName">The name to use when the file names none:
+    /// the file's own name, as the audio preset import does.</param>
+    public static bool TryReadPresetFile(string path, string fallbackName, out FilterPresetFile? read)
+    {
+        read = null;
+        try
+        {
+            FilterPresetFile? file;
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                var serializer = new XmlSerializer(typeof(FilterPresetFile));
+                file = serializer.Deserialize(fs) as FilterPresetFile;
+            }
+            if (file == null || file.High <= file.Low) return false;
+            string mode = (file.Mode ?? "").Trim();
+            if (mode.Length > 0)
+            {
+                string key = NormalizeMode(mode);
+                if (!ModeKeys.Contains(key)) return false;
+                file.Mode = key;
+            }
+            else file.Mode = "";
+            file.Name = string.IsNullOrWhiteSpace(file.Name) ? (fallbackName ?? "").Trim() : file.Name.Trim();
+            if (file.Name.Length == 0) return false;
+            read = file;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine($"FilterPresets.TryReadPresetFile failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Add an imported preset to its mode's list, in memory only: the mode the
+    /// file names, or <paramref name="currentMode"/> when it names none. A name
+    /// already in that list (letter case aside, since two such names are one
+    /// name by ear) is numbered, "Wide 2", "Wide 3". Nothing is saved and
+    /// nothing reaches a radio; the editor keeps it on OK like any other edit.
+    /// </summary>
+    /// <returns>The preset as added, and the mode list it went into.</returns>
+    public (FilterPreset Added, string Mode) ImportPreset(FilterPresetFile file, string currentMode)
+    {
+        if (file == null) throw new ArgumentNullException(nameof(file));
+        string mode = string.IsNullOrEmpty(file.Mode) ? currentMode : file.Mode;
+        var list = EditableList(mode);
+        string name = file.Name;
+        int n = 2;
+        while (list.Presets.Exists(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)))
+            name = $"{file.Name} {n++}";
+        var added = new FilterPreset(name, file.Low, file.High);
+        list.Presets.Add(added);
+        return (added, mode);
+    }
+
+    #endregion
+}
+
+/// <summary>
+/// One filter preset as an exported file (#314): the mode list it came from,
+/// its name and its edges. Version 1.
+/// </summary>
+[XmlRoot("FilterPreset")]
+public class FilterPresetFile
+{
+    [XmlAttribute]
+    public int Version { get; set; } = 1;
+
+    [XmlAttribute]
+    public string Mode { get; set; } = "";
+
+    public string Name { get; set; } = "";
+    public int Low { get; set; }
+    public int High { get; set; }
 }
 
 /// <summary>

@@ -924,6 +924,59 @@ namespace Radios.Tests
                 "connect.smartlink.account.tier_3",
                 "settings.network.tier_in_use",
                 "settings.network.tier_no_account",
+                // Junk box batch 30 (2026-11-25), #1065: manual forwarding on,
+                // the external TCP port known and the UDP port not. DRAFT
+                // facts for Codex to word; not approved copy.
+                "settings.network.advertises_tcp_udp_unknown",
+                "settings.network.router_rules_udp_unknown",
+                "settings.radio.way_in.ports_udp_unknown",
+                "settings.radio.way_in.set_udp_unknown",
+                // Junk box batch 30 repair round 1: forwarding on and neither
+                // external port known. DRAFT facts for Codex to word.
+                "settings.network.forwarding_on_ports_unknown",
+                "settings.network.router_rules_ports_unknown",
+                "settings.radio.way_in.set_ports_unknown",
+                // Junk box batch 30 repair round 2: the port boxes' words when
+                // a number in them was supplied by the app. The _label_udp,
+                // _name_shared and _name_udp keys are today's words moved out
+                // of the layout; the rest are DRAFT facts for Codex to word.
+                "settings.network.port_label_shared_suggested",
+                "settings.network.port_label_shared_udp_suggested",
+                "settings.network.port_label_tcp_only_suggested",
+                "settings.network.port_label_udp",
+                "settings.network.port_label_udp_suggested",
+                "settings.network.port_name_shared",
+                "settings.network.port_name_shared_suggested",
+                "settings.network.port_name_shared_udp_suggested",
+                "settings.network.port_name_tcp_only_suggested",
+                "settings.network.port_name_udp",
+                "settings.network.port_name_udp_suggested",
+                "settings.network.port_help_suggested",
+                "settings.network.port_help_udp_copied",
+                // Junk box batch 30, #276: the on-demand read closes with one
+                // clause for the Routine things running. DRAFT, for Codex.
+                "logging.running.routine_clause",
+                "logging.running.routine_only",
+                "logging.running.routine_clause_terse",
+                "logging.running.routine_only_terse",
+                // Junk box batch 30, #346: a step with no label of its own,
+                // written in the starting labels' style. DRAFT, for Codex.
+                "settings.tuning.step_label_hz",
+                "settings.tuning.step_label_khz",
+                "settings.tuning.step_label_mhz",
+                // Junk box batch 30, #314: export and import one filter preset.
+                // DRAFT, for Codex.
+                "settings.filter_presets.export_button",
+                "settings.filter_presets.export_name",
+                "settings.filter_presets.export_help",
+                "settings.filter_presets.import_button",
+                "settings.filter_presets.import_name",
+                "settings.filter_presets.import_help",
+                "settings.filter_presets.file_filter",
+                "settings.filter_presets.exported",
+                "settings.filter_presets.export_failed",
+                "settings.filter_presets.imported",
+                "settings.filter_presets.import_unreadable",
                 "settings.profile.choice_would_be_refused",
                 // SmartLink connection tiers, Track B (2026-11-20): the names of the
                 // SmartLink methods in the walk's move sentence, and the reason a

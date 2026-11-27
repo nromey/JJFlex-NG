@@ -201,8 +201,10 @@ namespace Radios.Tests
         public void TheZeroBeatScannerReallyReadsTheMethod()
         {
             string body = ZeroBeatProc();
-            Assert.Contains("Dictionary<ulong, freqCount> freqs", body, StringComparison.Ordinal);
-            Assert.Contains("Thread.Sleep(totalTime / iterations);", body, StringComparison.Ordinal);
+            // Since #1335 the loop is ZeroBeatPick's; the worker passes it the
+            // pan's own sample and the pause.
+            Assert.Contains("ZeroBeatPick(() => flexPan.ZeroBeatFreq(),", body, StringComparison.Ordinal);
+            Assert.Contains("Thread.Sleep(totalTime / iterations)", body, StringComparison.Ordinal);
             // And the thread it runs on is the bare one the key starts.
             string source = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "PanAdapterManager.cs"));
             Assert.Contains("new Thread(zeroBeatProc)", SourceMember.CSharp(source, "public ulong ZeroBeatFreq()"), StringComparison.Ordinal);

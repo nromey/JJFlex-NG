@@ -3195,8 +3195,12 @@ namespace Radios.Tests
             int outside = main.IndexOf("private void EndTransmitOutsideTheEdges(string why, Action end)", StringComparison.Ordinal);
             Assert.True(outside >= 0);
             string outsideBody = main[outside..main.IndexOf("\n    }", outside, StringComparison.Ordinal)];
-            Assert.Contains("if (held)\n        {\n            LatchAppEndedHold(why);", outsideBody.Replace("\r\n", "\n"));
-            Assert.Contains("_pttKeyDown = false;\n        }\n        else ResetPttInput();", outsideBody.Replace("\r\n", "\n"));
+            Assert.Contains("if (held) LatchAppEndedHold(why);\n        else ResetPttInput();", outsideBody.Replace("\r\n", "\n"));
+            // Since the closure sweep's #1089 remainder the latch itself clears
+            // the repeat guard, so every latch route gets it once.
+            int latch = main.IndexOf("private void LatchAppEndedHold(string why)", StringComparison.Ordinal);
+            Assert.True(latch >= 0);
+            Assert.Contains("_pttKeyDown = false;", SourceMember.CSharpAt(main, latch));
             int helper = main.IndexOf("private void ResetPttInput()", StringComparison.Ordinal);
             Assert.True(helper >= 0);
             string helperBody = SourceMember.CSharpAt(main, helper);

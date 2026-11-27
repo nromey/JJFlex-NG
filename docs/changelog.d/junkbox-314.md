@@ -1,0 +1,2 @@
+- Filter presets are now shareable through Export and Import in Settings, Tuning, Edit filter presets. Export saves the selected preset to a file.
+- Import adds a copy, using a numbered name when the name is already taken. Select OK to keep the import or Cancel to discard the import; the source file stays unchanged.

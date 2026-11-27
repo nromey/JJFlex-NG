@@ -1,0 +1,4 @@
+- The manual port forwarding information in Radio Setup and the Network tab in Settings now uses the external UDP port reported for SmartLink when that number is available. An unknown external UDP port is identified as unknown in the status text.
+- Both screens now show an enabled manual forwarding setting correctly even when external port numbers are unavailable on the current connection.
+- Suggested port numbers on the Network tab now have labels and screen-reader descriptions that identify them as proposals.
+- Opening Settings and selecting OK without changing the port forwarding controls no longer prompts for a port forwarding change.

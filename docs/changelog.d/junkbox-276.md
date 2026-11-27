@@ -1,0 +1,2 @@
+- The running list in JJ Flexible Radio Access now names recordings and captures individually, with their sizes. The everyday items that are actually running share one short closing phrase.
+- Press `Ctrl+J`, then `Alt+O` to hear the list. Terse shortens the closing phrase and keeps the sizes for individually named items.

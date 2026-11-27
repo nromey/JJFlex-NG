@@ -1,0 +1,1 @@
+- The next fresh Ctrl+Space press is no longer ignored because the previous key release did not reach JJ Flexible Radio Access. The fix covers held transmissions ended by a reference recording finishing, the fifteen-minute limit, a safety kill or high reflected power.

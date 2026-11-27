@@ -48,9 +48,8 @@ namespace Radios
 
         private static readonly string AccountsFilePath = Path.Combine(AppDataFolder, "SmartLinkAccounts.json");
 
-        // Auth0 configuration (same as AuthFormWebView2)
-        private const string Auth0Domain = "frtest.auth0.com";
-        private const string Auth0ClientId = "4Y9fEIIsVYyQo5u6jr7yBWc4lV5ugC2m";
+        // Auth0 configuration: SmartLinkAuth0Settings (#332), the one owner the
+        // sign-in windows read too. Each request below reads it once.
 
         private List<SmartLinkAccount> _accounts = new();
         private static readonly object _fileLock = new();
@@ -418,11 +417,12 @@ namespace Radios
         {
             try
             {
+                var auth0 = SmartLinkAuth0Settings.Current;
                 using var client = new HttpClient();
                 var content = new FormUrlEncodedContent(new Dictionary<string, string>
                 {
                     ["grant_type"] = "refresh_token",
-                    ["client_id"] = Auth0ClientId,
+                    ["client_id"] = auth0.ClientId,
                     ["refresh_token"] = account.RefreshToken,
                     // Exactly SmartSDR's refresh scope (decompile, Auth0Client.
                     // RefreshIdToken): they get a fresh id_token back with this.
@@ -431,7 +431,7 @@ namespace Radios
                     ["scope"] = "openid profile"
                 });
 
-                var response = await client.PostAsync($"https://{Auth0Domain}/oauth/token", content);
+                var response = await client.PostAsync($"https://{auth0.Domain}/oauth/token", content);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -549,17 +549,18 @@ namespace Radios
             var result = new PasswordLoginResult { Email = email?.Trim() ?? "" };
             try
             {
+                var auth0 = SmartLinkAuth0Settings.Current;
                 using var client = new HttpClient();
                 var content = new FormUrlEncodedContent(new Dictionary<string, string>
                 {
                     ["grant_type"] = "password",
-                    ["client_id"] = Auth0ClientId,
+                    ["client_id"] = auth0.ClientId,
                     ["username"] = result.Email,
                     ["password"] = password ?? "",
                     ["scope"] = "openid profile offline_access",
                 });
 
-                var response = await client.PostAsync($"https://{Auth0Domain}/oauth/token", content);
+                var response = await client.PostAsync($"https://{auth0.Domain}/oauth/token", content);
                 var json = await response.Content.ReadAsStringAsync();
 
                 if (!response.IsSuccessStatusCode)
@@ -630,15 +631,16 @@ namespace Radios
         {
             try
             {
+                var auth0 = SmartLinkAuth0Settings.Current;
                 using var client = new HttpClient();
                 var body = JsonSerializer.Serialize(new
                 {
-                    client_id = Auth0ClientId,
+                    client_id = auth0.ClientId,
                     email = email?.Trim() ?? "",
                     connection = "Username-Password-Authentication",
                 });
                 var content = new StringContent(body, Encoding.UTF8, "application/json");
-                var response = await client.PostAsync($"https://{Auth0Domain}/dbconnections/change_password", content);
+                var response = await client.PostAsync($"https://{auth0.Domain}/dbconnections/change_password", content);
                 Tracing.TraceLine($"SendPasswordResetEmailAsync: {response.StatusCode}", TraceLevel.Info);
                 return response.IsSuccessStatusCode;
             }
@@ -677,16 +679,17 @@ namespace Radios
             var result = new SignUpResult();
             try
             {
+                var auth0 = SmartLinkAuth0Settings.Current;
                 using var client = new HttpClient();
                 var body = JsonSerializer.Serialize(new
                 {
-                    client_id = Auth0ClientId,
+                    client_id = auth0.ClientId,
                     email = email?.Trim() ?? "",
                     password = password ?? "",
                     connection = "Username-Password-Authentication",
                 });
                 var content = new StringContent(body, Encoding.UTF8, "application/json");
-                var response = await client.PostAsync($"https://{Auth0Domain}/dbconnections/signup", content);
+                var response = await client.PostAsync($"https://{auth0.Domain}/dbconnections/signup", content);
                 var json = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)

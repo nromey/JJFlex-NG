@@ -744,6 +744,7 @@
                                          TextChanged="PortForwardTcpBox_TextChanged"/>
                                 <controls:DecorativeText Grid.Row="1" Grid.Column="0"
                                            Text="UDP port:"
+                                           x:Name="PortForwardUdpLabel"
                                            Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                                 <TextBox x:Name="PortForwardUdpBox" Grid.Row="1" Grid.Column="1"
                                          Text="4992" IsEnabled="False"

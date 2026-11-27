@@ -1,0 +1,1 @@
+- Zero beat now finishes early when the same frequency appears in five readings. A steady signal no longer waits for all ten readings.

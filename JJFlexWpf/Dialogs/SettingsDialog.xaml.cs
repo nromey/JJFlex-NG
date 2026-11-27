@@ -530,7 +530,9 @@ namespace JJFlexWpf.Dialogs
             PortForwardUdpBox.Text = "4992";
             PortForwardSeparatePortsCheck.IsChecked = false;
             PortForwardUdpBox.IsEnabled = false;
-            PortForwardTcpLabel.Text = Lexicon.Get("settings.network.port_label_shared");
+            // No radio yet: the boxes keep today's plain labels and names
+            // (repair round 3); the suggestion words are for a connected radio.
+            ShowPortFieldWordsWithNoRadio();
             NetworkCurrentStateText.Text = Lexicon.Get("settings.no_radio_connected");
 
             // Task #102 — path learning (Network tab, bottom). Commits live
@@ -679,7 +681,8 @@ namespace JJFlexWpf.Dialogs
                 PortForwardUdpBox.Text = "4992";
                 PortForwardSeparatePortsCheck.IsChecked = false;
                 PortForwardUdpBox.IsEnabled = false;
-                PortForwardTcpLabel.Text = Lexicon.Get("settings.network.port_label_shared");
+                ShowPortFieldWordsWithNoRadio();
+                RecordPortForwardShown();
                 // The tier is no longer edited here, connected or not (the
                 // tiers work, decision 8): this tab shows the in-use account's
                 // tier, read-only, and each account's tier is edited offline in
@@ -691,24 +694,23 @@ namespace JJFlexWpf.Dialogs
             bool enabled = _rig.PortForwardingEnabled;
             int tcp = _rig.PortForwardingTcpPort;
             int udp = _rig.PortForwardingUdpPort;
-            bool portsDiffer = enabled && tcp > 0 && udp > 0 && tcp != udp;
+            var fill = PortBoxFill(enabled, tcp, udp);
+            bool portsDiffer = fill.Separate;
 
             PortForwardEnabledCheck.IsChecked = enabled;
-            PortForwardTcpBox.Text = (tcp > 0 ? tcp : 4992).ToString();
-            PortForwardUdpBox.Text = (udp > 0 ? udp : 4992).ToString();
+            PortForwardTcpBox.Text = fill.TcpText;
+            PortForwardUdpBox.Text = fill.UdpText;
             PortForwardSeparatePortsCheck.IsChecked = portsDiffer;
             PortForwardUdpBox.IsEnabled = portsDiffer;
-            PortForwardTcpLabel.Text = portsDiffer ? Lexicon.Get("settings.network.port_label_tcp_only") : Lexicon.Get("settings.network.port_label_shared");
+            // A box holding a number the radio did not report (4992, or the
+            // TCP number copied into the UDP box) is labelled and named as a
+            // suggestion; a reported number keeps today's words (repair round 2).
+            ShowPortFieldWords(tcp, udp);
             // Track C wording fix: the radio advertises these external ports;
             // it listens on its LAN address at 4994/4993. Saying "listens on
             // your port" sent a live debugging session down the wrong road.
-            NetworkCurrentStateText.Text = enabled
-                ? (portsDiffer
-                    ? Lexicon.Get("settings.network.advertises_separate_ports",
-                        ("tcp", tcp), ("udp", udp))
-                    : Lexicon.Get("settings.network.advertises_one_port", ("tcp", tcp)))
-                  + DescribeRouterMapping(tcp, udp)
-                : Lexicon.Get("settings.network.uses_upnp_or_hole_punch");
+            NetworkCurrentStateText.Text = ForwardingStateLine(enabled, tcp, udp, RadioLanIpText());
+            RecordPortForwardShown();
 
             ShowTierInUse();
         }
@@ -826,9 +828,9 @@ namespace JJFlexWpf.Dialogs
             if (PortForwardUdpBox == null || PortForwardTcpLabel == null) return;
             bool separate = PortForwardSeparatePortsCheck.IsChecked == true;
             PortForwardUdpBox.IsEnabled = separate;
-            PortForwardTcpLabel.Text = separate ? Lexicon.Get("settings.network.port_label_tcp_only") : Lexicon.Get("settings.network.port_label_shared");
             if (!separate)
                 PortForwardUdpBox.Text = PortForwardTcpBox.Text;
+            ApplyPortFieldWords();
         }
 
         /// <summary>
@@ -850,14 +852,87 @@ namespace JJFlexWpf.Dialogs
         /// Shown wherever forwarding state is reported, because the old "the
         /// radio listens on your port" story misled a live debugging session.
         /// </summary>
-        private string DescribeRouterMapping(int tcp, int udp)
-        {
-            string lanIp = _rig?.CurrentRadioIP?.ToString()
-                ?? Lexicon.Get("settings.network.radio_lan_ip_unknown");
-            return Lexicon.Get("settings.network.router_rules",
-                ("tcp", tcp), ("udp", udp), ("lanIp", lanIp),
+        private string DescribeRouterMapping(int tcp, int udp) =>
+            Lexicon.Get("settings.network.router_rules",
+                ("tcp", tcp), ("udp", udp), ("lanIp", RadioLanIpText()),
                 ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
                 ("udpPort", FlexBase.SmartLinkRadioUdpPort));
+
+        private string RadioLanIpText() =>
+            _rig?.CurrentRadioIP?.ToString()
+                ?? Lexicon.Get("settings.network.radio_lan_ip_unknown");
+
+        /// <summary>
+        /// The Network tab's state line for the radio's manual forwarding: the
+        /// advertised ports and the router rules, or the UPnP or hole-punch
+        /// line when forwarding is off. A UDP port that is not known (-1, or 0
+        /// from a radio rebuilt from the connection cache) is said to be not
+        /// known, never shown as the TCP number or as -1 (#1065). Pure, so a
+        /// test reaches it without a window.
+        /// </summary>
+        internal static string ForwardingStateLine(bool enabled, int tcp, int udp, string lanIp)
+        {
+            if (!enabled) return Lexicon.Get("settings.network.uses_upnp_or_hole_punch");
+            // Forwarding on, the external TCP port not known (-1 when no list
+            // and no SmartLink sighting describes this radio, 0 from the
+            // connection cache): no external number is named, and the rules
+            // keep only the radio's own LAN-side ports. Until repair round 1
+            // this fell into the next branch and said "external TCP port -1".
+            if (tcp <= 0)
+                return Lexicon.Get("settings.network.forwarding_on_ports_unknown")
+                    + Lexicon.Get("settings.network.router_rules_ports_unknown",
+                        ("lanIp", lanIp),
+                        ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
+                        ("udpPort", FlexBase.SmartLinkRadioUdpPort));
+            if (udp <= 0)
+                return Lexicon.Get("settings.network.advertises_tcp_udp_unknown", ("tcp", tcp))
+                    + Lexicon.Get("settings.network.router_rules_udp_unknown",
+                        ("tcp", tcp), ("lanIp", lanIp),
+                        ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
+                        ("udpPort", FlexBase.SmartLinkRadioUdpPort));
+            bool portsDiffer = tcp > 0 && tcp != udp;
+            return (portsDiffer
+                    ? Lexicon.Get("settings.network.advertises_separate_ports", ("tcp", tcp), ("udp", udp))
+                    : Lexicon.Get("settings.network.advertises_one_port", ("tcp", tcp)))
+                + Lexicon.Get("settings.network.router_rules",
+                    ("tcp", tcp), ("udp", udp), ("lanIp", lanIp),
+                    ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
+                    ("udpPort", FlexBase.SmartLinkRadioUdpPort));
+        }
+
+        /// <summary>
+        /// What the Network tab's forwarding fields held when they were last
+        /// filled, with a radio or without one: the checkbox, and each port box
+        /// as a number (-1 when the box does not hold one).
+        /// </summary>
+        internal readonly record struct PortForwardShown(bool Enabled, int Tcp, int Udp);
+
+        private PortForwardShown? _portForwardShown;
+
+        private void RecordPortForwardShown()
+        {
+            _portForwardShown = new PortForwardShown(
+                PortForwardEnabledCheck.IsChecked == true,
+                int.TryParse(PortForwardTcpBox.Text, out int t) ? t : -1,
+                int.TryParse(PortForwardUdpBox.Text, out int u) ? u : -1);
+        }
+
+        /// <summary>
+        /// Whether OK or Apply should offer to rewrite the radio's port
+        /// forwarding: only when the operator changed the fields from what the
+        /// tab showed (#1065). Comparing with a fresh read of the radio made an
+        /// untouched tab read as changed whenever the read differs from what
+        /// the boxes could show: a UDP port that is not known, or a value that
+        /// changed while the window was open. Either then offered to write the
+        /// boxes' numbers into the radio. With nothing recorded (the tab never
+        /// filled), the radio's values are the comparison, as before.
+        /// </summary>
+        internal static bool PortForwardChanged(PortForwardShown? shown, bool wantEnabled, int tcp, int udp,
+            bool curEnabled, int curTcp, int curUdp)
+        {
+            if (shown is PortForwardShown s)
+                return wantEnabled != s.Enabled || (wantEnabled && (tcp != s.Tcp || udp != s.Udp));
+            return wantEnabled != curEnabled || (wantEnabled && (tcp != curTcp || udp != curUdp));
         }
 
         /// <summary>
@@ -918,8 +993,8 @@ namespace JJFlexWpf.Dialogs
             bool curEnabled = _rig.PortForwardingEnabled;
             int curTcp = _rig.PortForwardingTcpPort;
             int curUdp = _rig.PortForwardingUdpPort;
-            bool dirty = wantEnabled != curEnabled
-                         || (wantEnabled && (tcp != curTcp || udp != curUdp));
+            bool dirty = PortForwardChanged(_portForwardShown, wantEnabled, tcp, udp,
+                curEnabled, curTcp, curUdp);
 
             if (dirty)
             {
@@ -1037,6 +1112,9 @@ namespace JJFlexWpf.Dialogs
                             ("email", _rig.CurrentSmartLinkAccountEmail)))
                     : string.Empty;
                 NetworkCurrentStateText.Text = baseMessage + prefSuffix;
+                // What the radio now holds is what the fields show, so an
+                // untouched second Apply offers nothing (#1065).
+                RecordPortForwardShown();
                 ScreenReaderOutput.Speak(enabled
                     ? Lexicon.Get("settings.network.forwarding_set_spoken", ("tcp", tcp))
                     : Lexicon.Get("settings.network.forwarding_disabled_spoken"),
