@@ -28,9 +28,15 @@ namespace Radios
         /// <summary>On a channel in a kept mode, but not on the exact dial for it: CW on the
         /// centre, USB and Digital USB 1.5 kHz below it (97.303(h)(3)).</summary>
         Dial,
-        /// <summary>A mode not allowed where the signal is: on a channel anything but USB,
-        /// Digital USB or CW; in the segment AM, FM, FreeDV and the like.</summary>
-        Mode,
+        /// <summary>On a channel in a mode JJ Flexible does not allow there: it allows upper
+        /// sideband, Digital USB, RTTY and CW, the designators 97.303(h)(3) names for the
+        /// channels. Whether that list is exhaustive is not established, so this is the
+        /// conservative reading (the orchestrator's decision, repair round 1 of junk box
+        /// batch 31; night question J8), never a claim about the law.</summary>
+        ChannelMode,
+        /// <summary>A mode far wider than the 2.8 kHz 60 m allows (the FM modes, D-STAR),
+        /// whatever its filter (97.307(f)(14)).</summary>
+        TooWideMode,
         /// <summary>The transmit filter makes the signal wider than 2.8 kHz, or carries part
         /// of it past the channel's or the segment's edge.</summary>
         Emission,
@@ -81,7 +87,8 @@ namespace Radios
             string? sixty = SixtyMeter switch
             {
                 SixtyMeterReason.Dial => Lexicon.Get("audio.ptt.blocked_sixty_meter_dial"),
-                SixtyMeterReason.Mode => Lexicon.Get("audio.ptt.blocked_sixty_meter_mode"),
+                SixtyMeterReason.ChannelMode => Lexicon.Get("audio.ptt.blocked_sixty_meter_channel_mode"),
+                SixtyMeterReason.TooWideMode => Lexicon.Get("audio.ptt.blocked_sixty_meter_too_wide_mode"),
                 SixtyMeterReason.Emission => Lexicon.Get("audio.ptt.blocked_sixty_meter_emission"),
                 SixtyMeterReason.Outside => Lexicon.Get("audio.ptt.blocked_sixty_meter_outside"),
                 _ => null,

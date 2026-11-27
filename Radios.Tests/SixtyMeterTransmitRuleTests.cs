@@ -46,14 +46,21 @@ public sealed class SixtyMeterTransmitRuleTests
         Assert.Equal(SixtyMeterReason.Dial, Judge(5_330_500, "CW"));
     }
 
+    /// <summary>
+    /// Repair round 1: these five rows pinned <c>Mode</c>, "this mode is not
+    /// allowed here on 60 meters", which is a claim about the law the code
+    /// cannot back. On a channel JJ Flexible allows only USB, Digital USB, RTTY
+    /// and CW (the conservative reading of 97.303(h)(3)'s designators, the
+    /// orchestrator's decision; night question J8), and says exactly that.
+    /// </summary>
     [Theory]
     [InlineData("LSB")]
     [InlineData("DIGL")]
     [InlineData("AM")]
     [InlineData("FM")]
     [InlineData("FDVU")]
-    public void Only_USB_Digital_USB_and_CW_are_allowed_on_a_channel(string mode) =>
-        Assert.Equal(SixtyMeterReason.Mode, Judge(5_330_500, mode));
+    public void Only_USB_Digital_USB_RTTY_and_CW_are_allowed_on_a_channel(string mode) =>
+        Assert.Equal(SixtyMeterReason.ChannelMode, Judge(5_330_500, mode));
 
     [Fact]
     public void A_transmit_filter_wider_than_2_8_kHz_or_past_the_channel_edge_is_refused()
@@ -77,7 +84,8 @@ public sealed class SixtyMeterTransmitRuleTests
         Assert.Equal(SixtyMeterReason.Emission, Judge(5_366_000, "USB"));
         Assert.Equal(SixtyMeterReason.Emission, Judge(5_352_000, "LSB"));
         Assert.Equal(SixtyMeterReason.Emission, Judge(5_357_000, "USB", 100, 3500));
-        Assert.Equal(SixtyMeterReason.Mode, Judge(5_357_000, "AM"));
+        // AM with the default filter: the carrier plus and minus 2.9 kHz, 5.8 kHz wide.
+        Assert.Equal(SixtyMeterReason.Emission, Judge(5_357_000, "AM"));
     }
 
     [Fact]
@@ -196,14 +204,20 @@ public sealed class SixtyMeterTransmitRuleTests
         Assert.Contains(Lexicon.Get("audio.ptt.blocked_sixty_meter_dial"), said);
         Assert.Equal(Lexicon.Get("audio.ptt.blocked_sixty_meter_outside"),
             new TransmitVerdict(LockoutReason.None, SixtyMeterReason.Outside).RefusalSentence());
-        Assert.Equal(Lexicon.Get("audio.ptt.blocked_sixty_meter_mode"),
-            new TransmitVerdict(LockoutReason.None, SixtyMeterReason.Mode).RefusalSentence());
+        Assert.Equal(Lexicon.Get("audio.ptt.blocked_sixty_meter_channel_mode"),
+            new TransmitVerdict(LockoutReason.None, SixtyMeterReason.ChannelMode).RefusalSentence());
+        Assert.Equal(Lexicon.Get("audio.ptt.blocked_sixty_meter_too_wide_mode"),
+            new TransmitVerdict(LockoutReason.None, SixtyMeterReason.TooWideMode).RefusalSentence());
         Assert.Equal(Lexicon.Get("audio.ptt.blocked_sixty_meter_emission"),
             new TransmitVerdict(LockoutReason.None, SixtyMeterReason.Emission).RefusalSentence());
         // Each 60 m sentence names the setting that refused it.
-        foreach (var key in new[] { "audio.ptt.blocked_sixty_meter_dial", "audio.ptt.blocked_sixty_meter_mode",
+        foreach (var key in new[] { "audio.ptt.blocked_sixty_meter_dial", "audio.ptt.blocked_sixty_meter_channel_mode",
+                                    "audio.ptt.blocked_sixty_meter_too_wide_mode",
                                     "audio.ptt.blocked_sixty_meter_emission", "audio.ptt.blocked_sixty_meter_outside" })
             Assert.Contains(Lexicon.Get("settings.license.enforce_tx_rules_label"), Lexicon.Get(key));
+        // Repair round 1: never a claim that a mode is unlawful.
+        foreach (var key in new[] { "audio.ptt.blocked_sixty_meter_channel_mode", "audio.ptt.blocked_sixty_meter_too_wide_mode" })
+            Assert.DoesNotContain("not allowed here", Lexicon.Get(key), System.StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -233,6 +247,123 @@ public sealed class SixtyMeterTransmitRuleTests
         Assert.Contains(lines, l => l.Contains("JJFlexHelp.SetText(EnforceTxRulesCheckbox, ") && l.Contains(help));
         Assert.DoesNotContain("power limit", Lexicon.Get("settings.license.enforce_tx_rules_label"), System.StringComparison.OrdinalIgnoreCase);
         Assert.Contains("does not limit your power", Lexicon.Get("settings.license.enforce_tx_rules_help"));
+    }
+
+    // ---- repair round 1: which check owns what ----
+    //
+    // The lockout judges the class's privileges and keeps the 60 m allocation
+    // edges (each channel's centre plus and minus 1.4 kHz, and the segment); the
+    // 60 m rule owns the rest: which modes go on a channel, the dial per mode,
+    // and the 2.8 kHz width where the edges do not already settle it. So with
+    // the lockout on and the box off, a signal that fits the allocation is
+    // admitted even when the 60 m rule would refuse it: off means off (the
+    // orchestrator's decision, repair round 1).
+
+    private static TransmitVerdict Judged(LicenseConfig license, ulong hz, string mode, int sliceLow, int sliceHigh,
+        int txLow = 100, int txHigh = 2900)
+    {
+        var reading = new TransmitSliceReading(hz, mode, sliceLow, sliceHigh) { TxFilterLow = txLow, TxFilterHigh = txHigh };
+        return TransmitRules.Judge(license, reading, 0, 0, 0, true, out _, out _, out _);
+    }
+
+    [Fact]
+    public void Narrow_AM_in_the_segment_is_admitted_by_both_checks()
+    {
+        Assert.Equal(SixtyMeterReason.None, Judge(5_357_000, "AM", 100, 1200));
+        Assert.True(Judged(Settings(lockout: true, sixty: true, Bands.Licenses.general), 5_357_000, "AM", -1200, 1200, 100, 1200).IsAllowed);
+        Assert.True(Judged(Settings(lockout: false, sixty: true), 5_357_000, "AM", -1200, 1200, 100, 1200).IsAllowed);
+    }
+
+    [Fact]
+    public void AM_with_the_default_filter_is_refused_for_width_by_the_60_metre_rule_and_admitted_by_the_lockout()
+    {
+        Assert.Equal(new TransmitVerdict(LockoutReason.None, SixtyMeterReason.Emission),
+            Judged(Settings(lockout: true, sixty: true, Bands.Licenses.general), 5_357_000, "AM", -2900, 2900));
+        Assert.Equal(new TransmitVerdict(LockoutReason.None, SixtyMeterReason.Emission),
+            Judged(Settings(lockout: false, sixty: true), 5_357_000, "AM", -2900, 2900));   // box on, lockout off
+        Assert.True(Judged(Settings(lockout: true, sixty: false, Bands.Licenses.general), 5_357_000, "AM", -2900, 2900).IsAllowed);
+    }
+
+    [Theory]
+    [InlineData("FDVU")]
+    [InlineData("FDV")]
+    public void FreeDV_upper_in_the_segment_is_placed_like_USB_and_admitted(string mode)
+    {
+        Assert.Equal(SixtyMeterReason.None, Judge(5_357_000, mode));
+        Assert.True(Judged(Settings(lockout: true, sixty: true, Bands.Licenses.general), 5_357_000, mode, 100, 2900).IsAllowed);
+        Assert.True(Judged(Settings(lockout: false, sixty: true), 5_357_000, mode, 100, 2900).IsAllowed);
+        // Placed like USB: past the segment's top it spills, as USB does.
+        Assert.Equal(SixtyMeterReason.Emission, Judge(5_366_000, mode));
+        // FreeDV lower is placed like LSB: at 5352.0 it reaches below the segment, at 5354.5 it fits.
+        Assert.Equal(SixtyMeterReason.Emission, Judge(5_352_000, "FDVL"));
+        Assert.Equal(SixtyMeterReason.None, Judge(5_354_500, "FDVL"));
+        Assert.Equal(SixtyMeterReason.None, Judge(5_352_000, "FDVU"));
+    }
+
+    [Theory]
+    [InlineData("FM")]
+    [InlineData("NFM")]
+    [InlineData("DFM")]
+    [InlineData("DSTR")]
+    public void FM_and_D_STAR_in_the_segment_are_refused_as_wider_than_60_metres_allows(string mode)
+    {
+        Assert.Equal(SixtyMeterReason.TooWideMode, Judge(5_357_000, mode));
+        Assert.Equal(SixtyMeterReason.TooWideMode,
+            Judged(Settings(lockout: false, sixty: true), 5_357_000, mode, -5500, 5500).SixtyMeter);
+    }
+
+    [Fact]
+    public void Narrow_AM_on_a_channel_fits_the_allocation_but_the_60_metre_rule_refuses_it_on_a_channel()
+    {
+        var general = Settings(lockout: true, sixty: false, Bands.Licenses.general);
+        Assert.True(Judged(general, 5_332_000, "AM", -1200, 1200).IsAllowed);   // the lockout alone
+        Assert.Equal(new TransmitVerdict(LockoutReason.None, SixtyMeterReason.ChannelMode),
+            Judged(Settings(lockout: true, sixty: true, Bands.Licenses.general), 5_332_000, "AM", -1200, 1200));
+        Assert.Equal(new TransmitVerdict(LockoutReason.None, SixtyMeterReason.ChannelMode),
+            Judged(Settings(lockout: false, sixty: true), 5_332_000, "AM", -1200, 1200));   // box on, lockout off
+    }
+
+    [Fact]
+    public void LSB_at_the_mirrored_dial_fits_the_channel_but_the_60_metre_rule_refuses_it_on_a_channel()
+    {
+        // 5333.5 LSB with the default 100 to 2,900 filter fills 5330.6 to 5333.4, Channel 1 exactly.
+        Assert.True(Judged(Settings(lockout: true, sixty: false, Bands.Licenses.general), 5_333_500, "LSB", -2900, -100).IsAllowed);
+        Assert.Equal(new TransmitVerdict(LockoutReason.None, SixtyMeterReason.ChannelMode),
+            Judged(Settings(lockout: true, sixty: true, Bands.Licenses.general), 5_333_500, "LSB", -2900, -100));
+        Assert.Equal(SixtyMeterReason.ChannelMode, Judge(5_333_500, "LSB"));
+    }
+
+    [Fact]
+    public void AM_wider_than_a_channel_is_refused_by_the_lockout_for_its_frequency()
+    {
+        // The channel edge is the allocation edge: never widened to make a test pass.
+        Assert.Equal(new TransmitVerdict(LockoutReason.Frequency),
+            Judged(Settings(lockout: true, sixty: false, Bands.Licenses.general), 5_332_000, "AM", -3000, 3000));
+    }
+
+    [Fact]
+    public void With_the_lockout_on_and_the_box_off_narrow_FM_that_fits_the_segment_is_admitted_and_wide_FM_is_not()
+    {
+        var lockoutOnly = Settings(lockout: true, sixty: false, Bands.Licenses.general);
+        Assert.True(Judged(lockoutOnly, 5_359_000, "NFM", -5500, 5500).IsAllowed);
+        // The 16 kHz FM fixture runs from 5351.0 to 5367.0, past both segment edges.
+        Assert.Equal(new TransmitVerdict(LockoutReason.Frequency), Judged(lockoutOnly, 5_359_000, "FM", -8000, 8000));
+        // Positive control: the box on refuses the narrow one for its mode's width.
+        Assert.Equal(SixtyMeterReason.TooWideMode,
+            Judged(Settings(lockout: true, sixty: true, Bands.Licenses.general), 5_359_000, "NFM", -5500, 5500).SixtyMeter);
+    }
+
+    [Theory]
+    [InlineData(5_351_000UL, "LSB")]   // reaches into Channel 2 from the gap below the segment
+    [InlineData(5_351_000UL, "DIGL")]
+    public void A_signal_in_the_gap_between_a_channel_and_the_segment_is_outside_never_a_mode_refusal(ulong hz, string mode) =>
+        Assert.Equal(SixtyMeterReason.Outside, Judge(hz, mode, 100, 1200));
+
+    [Fact]
+    public void LSB_in_the_gap_with_the_default_filter_is_outside()
+    {
+        Assert.Equal(SixtyMeterReason.Outside, Judge(5_351_000, "LSB"));
+        Assert.Equal(SixtyMeterReason.None, Judge(5_357_000, "LSB"));   // positive control: in the segment
     }
 
     [Fact]

@@ -3326,7 +3326,9 @@ namespace Radios.Tests
                 "audio.ptt.blocked_by_license_mode",
                 // ...and #1161: the 60 m rules' refusals, and its checkbox. DRAFT.
                 "audio.ptt.blocked_sixty_meter_dial",
-                "audio.ptt.blocked_sixty_meter_mode",
+                // repair 1: the channel and too-wide-mode refusals replace the old mode one. DRAFT.
+                "audio.ptt.blocked_sixty_meter_channel_mode",
+                "audio.ptt.blocked_sixty_meter_too_wide_mode",
                 "audio.ptt.blocked_sixty_meter_emission",
                 "audio.ptt.blocked_sixty_meter_outside",
                 "audio.ptt.blocked_by_both",

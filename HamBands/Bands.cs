@@ -195,9 +195,14 @@ namespace HamBands
         private static readonly Modes[] AllEmissions =
             { Modes.PhoneCW, Modes.RTTYData, Modes.Image, Modes.MCW };
         // 60 m (97.303(h)(3), 97.305(c)(3)(iii), 97.307(f)(14)): phone, RTTY,
-        // data and CW, never wider than 2.8 kHz, so phone is single sideband.
+        // data and CW, never wider than 2.8 kHz. The lockout judges the class's
+        // privileges and the allocation's edges only, so phone is marked as
+        // phone (repair round 1 of batch 31): which phone goes on a channel,
+        // the dial per mode, and the 2.8 kHz width in the segment are the 60 m
+        // rule's ("Enforce 60 meter transmit rules"). Modes.USB is not kept:
+        // the Band Plans "USB" filter finds phone divisions (Bands.Allows).
         private static readonly Modes[] SixtyMeterEmissions =
-            { Modes.USB, Modes.RTTYData, Modes.M60Data };
+            { Modes.PhoneCW, Modes.RTTYData, Modes.M60Data };
 
         /// <summary>
         /// One 60 m channel's division: its centre plus and minus 1.4 kHz, the
